@@ -7,10 +7,10 @@ module Foreign.Nix.Shellout
   ) where
 
 import Protolude
--- import Data.List (stripPrefix)
--- import Data.String (lines, String)
 import Data.Text (stripPrefix, lines)
 import System.Process (readProcessWithExitCode)
+import System.FilePath (isValid)
+import Control.Error hiding (bool)
 
 
 -------------------------------------------------------------------------------
@@ -18,14 +18,14 @@ newtype NixExpr = NixExpr Text deriving (Show, Eq)
 data ParseError = SyntaxError Text
                 | OtherParseError Text deriving (Show, Eq)
 
-parseNixExpr :: Text -> IO (Either ParseError NixExpr)
+parseNixExpr :: Text -> ExceptT ParseError IO NixExpr
 parseNixExpr e = do
-  bimap parseParseError NixExpr
-    <$> evalInstantiateOutput [ "--parse", "-E", e ]
+  bimapExceptT parseParseError NixExpr
+    $ evalInstantiateOutput [ "--parse", "-E", e ]
 
 
 -------------------------------------------------------------------------------
-type StorePath a = FilePath
+newtype StorePath a = StorePath FilePath deriving (Eq, Show)
 data Derivation
 data Build
 
@@ -33,8 +33,14 @@ data NixError = NotADerivation
               | UnexpectedError Text
               | OtherInstantiateError Text deriving (Show, Eq)
 
-instantiate :: NixExpr -> IO (Either NixError (StorePath Derivation))
-instantiate e = undefined
+instantiate :: NixExpr -> ExceptT NixError IO (StorePath Derivation)
+instantiate (NixExpr e) =
+  fmapLT parseInstantiateError
+    $ evalInstantiateOutput [ "-E", e ]
+    >>= (\t@(toS -> out)
+          -> if isValid out
+             then (pure $ StorePath out)
+             else (throwE $ t <> " is not a filepath!"))
 
 
 -------------------------------------------------------------------------------
@@ -53,11 +59,13 @@ parseParseError s           = OtherParseError $ s
 
 -------------------------------------------------------------------------------
 -- | Take args and return either error message or output path
-evalInstantiateOutput :: [Text] -> IO (Either Text Text)
+evalInstantiateOutput :: [Text] -> ExceptT Text IO Text
 evalInstantiateOutput args = do
-  (exc, out, err) <- readProcessWithExitCode "nix-instantiate" (map toS args) ""
-  pure $ case exc of
-    ExitFailure _ -> Left $ lastDef
+  (exc, out, err) <- liftIO
+    $ readProcessWithExitCode "nix-instantiate" (map toS args) ""
+  case exc of
+    ExitFailure _ -> tryLast
                        "nix didn’t output any error message" (lines $ toS err)
-    ExitSuccess   -> Left $ lastDef
+                       >>= throwE
+    ExitSuccess   -> tryLast
                        "nix didn’t output a derivation path" (lines $ toS out)
