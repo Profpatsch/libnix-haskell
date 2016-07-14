@@ -9,14 +9,22 @@ import Test.Tasty.HUnit
 
 import Foreign.Nix.Shellout
 
+
+shelloutTests :: TestTree
 shelloutTests = testGroup "shellout tests"
   [ testGroup "parsing"
     [ syntaxError ]
-  , testGroup "evaluation"
+  , testGroup "evaluating"
     [ infiniteRecursion
     , notADerivation
     , someDerivation ]
+  , testGroup "realising"
+    [ nixpkgsExists
+    , helloWorld ]
   ]
+
+syntaxError, infiniteRecursion, notADerivation, someDerivation :: TestTree
+nixpkgsExists, helloWorld :: TestTree
 
 syntaxError = testCase "syntax error"
   $ parseNixExpr ";"
@@ -31,21 +39,38 @@ notADerivation = testCase "not a derivation"
   $ parseInst "42"
   `isE` (Left $ NotADerivation)
 
-someDerivation = testCase "a basic derivation" $ do
-  e <- runExceptT $ (parseInst
-    "derivation { name = \"foo\"; builder = \" \"; system = \" \"; }")
-  case e of
-    (Left e)  -> assertFailure $ show e
-    (Right _) -> pure ()
+someDerivation = testCase "a basic derivation"
+  $ assertNoFailure $ parseInst
+      "derivation { name = \"foo\"; builder = \" \"; system = \" \"; }"
+
+nixpkgsExists = testCase "nixpkgs is accessible"
+  $ assertNoFailure $ parseEval "import <nixpkgs> {}"
+
+helloWorld = testCase "build the GNU hello package"
+  $ assertNoFailure $ parseInstRealize "with import <nixpkgs> {}; hello"
 
 
+--------------------------------------------------------------------
+-- Helpers
 
-parseInst :: Text -> ExceptT NixError IO (StorePath Derivation)
-parseInst e = (catchParse $ parseNixExpr e) >>= instantiate
+parseInst :: Text -> NixAction InstantiateError (StorePath Derivation)
+parseInst = parseInstLike instantiate
 
-catchParse :: ExceptT ParseError IO a -> ExceptT NixError IO a
-catchParse exT = catchE exT
-  (\e -> throwE $ OtherInstantiateError "error in parse!")
+parseEval :: Text -> NixAction InstantiateError ()
+parseEval = parseInstLike eval
 
-isE :: (Eq e, Eq a, Show a, Show e) => ExceptT e IO a -> Either e a -> Assertion
+parseInstLike :: (NixExpr -> NixAction InstantiateError a)
+              -> Text
+              -> NixAction InstantiateError a
+parseInstLike like = withExceptT (const $ OtherInstantiateError "parse failed :(.")
+              . parseNixExpr >=> like
+
+isE :: (Eq e, Eq a, Show a, Show e) => NixAction e a -> Either e a -> Assertion
 isE exT eith = runExceptT exT >>= (@?= eith)
+
+assertNoFailure :: Show e => NixAction e a -> Assertion
+assertNoFailure exT = do
+  ei <- runExceptT exT
+  case ei of
+    (Left e) -> assertFailure $ show e
+    (Right _) -> pure ()

@@ -1,54 +1,38 @@
-{-# LANGUAGE NoImplicitPrelude, ViewPatterns, TupleSections, OverloadedStrings #-}
+{-# LANGUAGE NoImplicitPrelude, ViewPatterns, OverloadedStrings #-}
 module Foreign.Nix.Shellout
-  ( NixExpr, parseNixExpr
-  , instantiate
-  , StorePath, Derivation, Build
-  , NixError(..), ParseError(..)
+  ( NixAction
+  , NixExpr, parseNixExpr
+  , instantiate, realize, eval
+  , parseInstRealize
+  , StorePath, Derivation, Realized
+  , InstantiateError(..), ParseError(..), RealizeError(..), NixError(..)
   ) where
 
-import Protolude
+import Protolude hiding (show)
+import Control.Error hiding (bool, err)
+import Data.String (String)
 import Data.Text (stripPrefix, lines)
-import System.Process (readProcessWithExitCode)
 import System.FilePath (isValid)
-import Control.Error hiding (bool)
+import System.Process (readProcessWithExitCode)
+import Text.Show (Show(..))
 
 
--------------------------------------------------------------------------------
+------------------------------------------------------------------------------
+-- Parsing
+
+type NixAction e a = ExceptT e IO a
+
 newtype NixExpr = NixExpr Text deriving (Show, Eq)
+
 data ParseError = SyntaxError Text
                 | OtherParseError Text deriving (Show, Eq)
 
-parseNixExpr :: Text -> ExceptT ParseError IO NixExpr
-parseNixExpr e = do
+-- | Parse a nix expression and check for syntactic validity.
+parseNixExpr :: Text -> NixAction ParseError NixExpr
+parseNixExpr e =
   bimapExceptT parseParseError NixExpr
-    $ evalInstantiateOutput [ "--parse", "-E", e ]
+    $ evalNixOutput "nix-instantiate" [ "--parse", "-E", e ]
 
-
--------------------------------------------------------------------------------
-newtype StorePath a = StorePath FilePath deriving (Eq, Show)
-data Derivation
-data Build
-
-data NixError = NotADerivation
-              | UnexpectedError Text
-              | OtherInstantiateError Text deriving (Show, Eq)
-
-instantiate :: NixExpr -> ExceptT NixError IO (StorePath Derivation)
-instantiate (NixExpr e) =
-  fmapLT parseInstantiateError
-    $ evalInstantiateOutput [ "-E", e ]
-    >>= (\t@(toS -> out)
-          -> if isValid out
-             then (pure $ StorePath out)
-             else (throwE $ t <> " is not a filepath!"))
-
-
--------------------------------------------------------------------------------
-parseInstantiateError :: Text -> NixError
-parseInstantiateError
-  (stripPrefix "error: expression does not evaluate to a derivation"
-               -> Just _) = NotADerivation
-parseInstantiateError s   = OtherInstantiateError $ s
 
 parseParseError :: Text -> ParseError
 parseParseError
@@ -57,15 +41,86 @@ parseParseError
 parseParseError s           = OtherParseError $ s
 
 
--------------------------------------------------------------------------------
+------------------------------------------------------------------------------
+-- Instantiating
+
+newtype StorePath a = StorePath FilePath deriving (Eq, Show)
+data Derivation
+data Realized
+
+data InstantiateError = NotADerivation
+              | UnexpectedError Text
+              | OtherInstantiateError Text deriving (Show, Eq)
+
+-- | Instantiate a parsed expression into a derivation.
+instantiate :: NixExpr -> NixAction InstantiateError (StorePath Derivation)
+instantiate (NixExpr e) =
+  fmapLT parseInstantiateError
+    $ evalNixOutput "nix-instantiate" [ "-E", e ]
+      >>= toNixFilePath StorePath
+
+-- | Just tests if the expression can be evaluated.
+-- That doesn’t mean it has to instantiate however.
+eval :: NixExpr -> NixAction InstantiateError ()
+eval (NixExpr e) = do
+  _ <- fmapLT parseInstantiateError
+    $ evalNixOutput "nix-instantiate" [ "--eval", "-E", e ]
+  pure ()
+
+
+parseInstantiateError :: Text -> InstantiateError
+parseInstantiateError
+  (stripPrefix "error: expression does not evaluate to a derivation"
+               -> Just _) = NotADerivation
+parseInstantiateError s   = OtherInstantiateError $ s
+
+
+------------------------------------------------------------------------------
+-- Realizing
+
+data RealizeError = OtherRealizeError Text deriving (Show, Eq)
+
+-- | Finally derivations are realized into full store outputs.
+-- This will typically take a while so it should be executed asynchronously.
+realize :: StorePath Derivation -> ExceptT RealizeError IO (StorePath Realized)
+realize (StorePath d) =
+  fmapLT OtherRealizeError
+    $ evalNixOutput "nix-store" [ "-r", toS d ]
+      >>= toNixFilePath StorePath
+
+------------------------------------------------------------------------------
+-- Convenience
+
+data NixError = ParseError ParseError
+              | InstantiateError InstantiateError
+              | RealizeError RealizeError deriving (Show, Eq)
+
+-- | A convenience function to directly realize a nix expression.
+-- Any errors are put into a combined error type.
+parseInstRealize :: Text -> NixAction NixError (StorePath Realized)
+parseInstRealize = withExceptT ParseError . parseNixExpr
+               >=> withExceptT InstantiateError . instantiate
+               >=> withExceptT RealizeError . realize
+
+
+------------------------------------------------------------------------------
+-- Helpers
+
+-- TODO some errors are not only on the last line :( dropWhile (not.startsWith "error: ")
 -- | Take args and return either error message or output path
-evalInstantiateOutput :: [Text] -> ExceptT Text IO Text
-evalInstantiateOutput args = do
+evalNixOutput :: Text -> [Text] -> NixAction Text Text
+evalNixOutput exec args = do
   (exc, out, err) <- liftIO
-    $ readProcessWithExitCode "nix-instantiate" (map toS args) ""
+    $ readProcessWithExitCode (toS exec) (map toS args) ""
   case exc of
     ExitFailure _ -> tryLast
                        "nix didn’t output any error message" (lines $ toS err)
                        >>= throwE
     ExitSuccess   -> tryLast
-                       "nix didn’t output a derivation path" (lines $ toS out)
+                       "nix didn’t output a store path" (lines $ toS out)
+
+-- | Apply filePath p to constructor a if it’s a valid filepath
+toNixFilePath :: (String -> a) -> Text -> NixAction Text a
+toNixFilePath a p@(toS -> ps) =
+  if isValid ps then (pure $ a ps)
+  else (throwE $ p <> " is not a filepath!")
