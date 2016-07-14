@@ -13,7 +13,7 @@ textual nix expressions to derivations & realized storepaths.
 module Foreign.Nix.Shellout
   ( NixAction
   , NixExpr, parseNixExpr
-  , instantiate, realize, eval
+  , instantiate, realize, eval, addToStore
   , parseInstRealize
   , StorePath, Derivation, Realized
   , InstantiateError(..), ParseError(..), RealizeError(..), NixError(..)
@@ -94,8 +94,15 @@ data RealizeError = OtherRealizeError Text deriving (Show, Eq)
 -- This will typically take a while so it should be executed asynchronously.
 realize :: StorePath Derivation -> NixAction RealizeError (StorePath Realized)
 realize (StorePath d) =
+     storeOp [ "-r", toS d ]
+
+addToStore :: FilePath -> NixAction RealizeError (StorePath Realized)
+addToStore fp = storeOp [ "--add", toS fp ]
+
+storeOp :: [Text] -> NixAction RealizeError (StorePath Realized)
+storeOp op =
   fmapLT OtherRealizeError
-    $ evalNixOutput "nix-store" [ "-r", toS d ]
+    $ evalNixOutput "nix-store" op
       >>= toNixFilePath StorePath
 
 ------------------------------------------------------------------------------

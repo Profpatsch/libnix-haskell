@@ -34,6 +34,7 @@ test-suite tests
   main-is:             Main.hs
   hs-source-dirs:      tests
   build-depends:       base
+                     , directory
                      , errors
                      , libnix
                      , protolude

@@ -3,6 +3,8 @@ module TestShellout where
 
 import Protolude
 import Control.Error hiding (isLeft)
+import System.IO (openTempFile, hClose)
+import System.Directory (getTemporaryDirectory)
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -20,11 +22,12 @@ shelloutTests = testGroup "shellout tests"
     , someDerivation ]
   , testGroup "realising"
     [ nixpkgsExists
-    , helloWorld ]
+    , helloWorld
+    , copyTempfileToStore ]
   ]
 
 syntaxError, infiniteRecursion, notADerivation, someDerivation :: TestTree
-nixpkgsExists, helloWorld :: TestTree
+nixpkgsExists, helloWorld, copyTempfileToStore :: TestTree
 
 syntaxError = testCase "syntax error"
   $ parseNixExpr ";"
@@ -48,6 +51,13 @@ nixpkgsExists = testCase "nixpkgs is accessible"
 
 helloWorld = testCase "build the GNU hello package"
   $ assertNoFailure $ parseInstRealize "with import <nixpkgs> {}; hello"
+
+copyTempfileToStore = testCase "copy a temporary file to store"
+  $ assertNoFailure $ do
+    (fp, h) <- liftIO $
+      getTemporaryDirectory >>= flip openTempFile "store-test"
+    liftIO $ hClose h
+    addToStore fp
 
 
 --------------------------------------------------------------------
