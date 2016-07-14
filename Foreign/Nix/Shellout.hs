@@ -27,7 +27,6 @@ import System.FilePath (isValid)
 import System.Process (readProcessWithExitCode)
 import Text.Show (Show(..))
 
-
 ------------------------------------------------------------------------------
 -- Parsing
 
@@ -93,7 +92,7 @@ data RealizeError = OtherRealizeError Text deriving (Show, Eq)
 
 -- | Finally derivations are realized into full store outputs.
 -- This will typically take a while so it should be executed asynchronously.
-realize :: StorePath Derivation -> ExceptT RealizeError IO (StorePath Realized)
+realize :: StorePath Derivation -> NixAction RealizeError (StorePath Realized)
 realize (StorePath d) =
   fmapLT OtherRealizeError
     $ evalNixOutput "nix-store" [ "-r", toS d ]
