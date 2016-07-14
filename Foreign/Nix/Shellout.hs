@@ -1,3 +1,14 @@
+{-|
+Module      : Foreign.Nix.Shellout
+Description : Interface to the nix package manager that calls the CLI
+Copyright   : Profpatsch, 2016
+License     : GPL-3
+Stability   : experimental
+Portability : nix 1.11.x (maybe 1.x.x)
+
+This module directly calls the nix command line to convert
+textual nix expressions to derivations & realized storepaths.
+-}
 {-# LANGUAGE NoImplicitPrelude, ViewPatterns, OverloadedStrings #-}
 module Foreign.Nix.Shellout
   ( NixAction
