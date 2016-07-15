@@ -20,14 +20,15 @@ shelloutTests = testGroup "shellout tests"
     [ infiniteRecursion
     , notADerivation
     , someDerivation ]
-  , testGroup "realising"
+  , testGroup "realizing"
     [ nixpkgsExists
+    , multilineErrors
     , helloWorld
     , copyTempfileToStore ]
   ]
 
 syntaxError, infiniteRecursion, notADerivation, someDerivation :: TestTree
-nixpkgsExists, helloWorld, copyTempfileToStore :: TestTree
+nixpkgsExists, multilineErrors, helloWorld, copyTempfileToStore :: TestTree
 
 syntaxError = testCase "syntax error"
   $ parseNixExpr ";"
@@ -48,6 +49,12 @@ someDerivation = testCase "a basic derivation"
 
 nixpkgsExists = testCase "nixpkgs is accessible"
   $ assertNoFailure $ parseEval "import <nixpkgs> {}"
+
+multilineErrors = testCase "nixpkgs multiline stderr it parsed"
+  $ parseEval "builtins.abort ''wow\nsuch error''"
+  `isE` (Left $ OtherInstantiateError
+           "error: evaluation aborted with the following error \
+           \message: ‘wow\nsuch error’")
 
 helloWorld = testCase "build the GNU hello package"
   $ assertNoFailure $ parseInstRealize "with import <nixpkgs> {}; hello"

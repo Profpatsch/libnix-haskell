@@ -15,14 +15,14 @@ module Foreign.Nix.Shellout
   , NixExpr, parseNixExpr
   , instantiate, realize, eval, addToStore
   , parseInstRealize
-  , StorePath, Derivation, Realized
+  , StorePath(fromStorePath), Derivation, Realized
   , InstantiateError(..), ParseError(..), RealizeError(..), NixError(..)
   ) where
 
-import Protolude hiding (show)
+import Protolude hiding (show, isPrefixOf)
 import Control.Error hiding (bool, err)
 import Data.String (String)
-import Data.Text (stripPrefix, lines)
+import Data.Text (stripPrefix, lines, isPrefixOf)
 import System.FilePath (isValid)
 import System.Process (readProcessWithExitCode)
 import Text.Show (Show(..))
@@ -54,7 +54,8 @@ parseParseError s           = OtherParseError $ s
 ------------------------------------------------------------------------------
 -- Instantiating
 
-newtype StorePath a = StorePath FilePath deriving (Eq, Show)
+newtype StorePath a = StorePath { fromStorePath :: FilePath }
+                        deriving (Eq, Show)
 data Derivation
 data Realized
 
@@ -123,16 +124,18 @@ parseInstRealize = withExceptT ParseError . parseNixExpr
 ------------------------------------------------------------------------------
 -- Helpers
 
--- TODO some errors are not only on the last line :( dropWhile (not.startsWith "error: ")
 -- | Take args and return either error message or output path
 evalNixOutput :: Text -> [Text] -> NixAction Text Text
 evalNixOutput exec args = do
   (exc, out, err) <- liftIO
     $ readProcessWithExitCode (toS exec) (map toS args) ""
   case exc of
-    ExitFailure _ -> tryLast
-                       "nix didn’t output any error message" (lines $ toS err)
-                       >>= throwE
+    ExitFailure _ -> throwE $
+                       case mconcat . intersperse "\n"
+                          . dropWhile (not.isPrefixOf "error: ")
+                          . lines $ toS err of
+                         "" -> "nix didn’t output any error message"
+                         s  -> s
     ExitSuccess   -> tryLast
                        "nix didn’t output a store path" (lines $ toS out)
 
