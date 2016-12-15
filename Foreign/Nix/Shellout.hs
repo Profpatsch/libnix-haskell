@@ -9,12 +9,12 @@ Portability : nix 1.11.x (maybe 1.x.x)
 This module directly calls the nix command line to convert
 textual nix expressions to derivations & realized storepaths.
 -}
-{-# LANGUAGE NoImplicitPrelude, ViewPatterns, OverloadedStrings #-}
+{-# LANGUAGE NoImplicitPrelude, ViewPatterns, OverloadedStrings, TupleSections #-}
 module Foreign.Nix.Shellout
   ( NixAction
   , NixExpr, parseNixExpr
   , instantiate, realize, eval, addToStore
-  , parseInstRealize
+  , parseInstRealize, liftError
   , StorePath(fromStorePath), Derivation, Realized
   , InstantiateError(..), ParseError(..), RealizeError(..), NixError(..)
   ) where
@@ -30,7 +30,10 @@ import Text.Show (Show(..))
 ------------------------------------------------------------------------------
 -- Parsing
 
-type NixAction e a = ExceptT e IO a
+-- TODO: is it good to put stderr into the error?
+-- TODO: newtype?
+-- | An ExceptT that also provides the whole nix stderr (for debugging purposes)
+type NixAction e a = ExceptT (Text, e) IO a
 
 newtype NixExpr = NixExpr Text deriving (Show, Eq)
 
@@ -40,7 +43,7 @@ data ParseError = SyntaxError Text
 -- | Parse a nix expression and check for syntactic validity.
 parseNixExpr :: Text -> NixAction ParseError NixExpr
 parseNixExpr e =
-  bimapExceptT parseParseError NixExpr
+  bimapExceptT (fmap parseParseError) NixExpr
     $ evalNixOutput "nix-instantiate" [ "--parse", "-E", e ]
 
 
@@ -66,7 +69,7 @@ data InstantiateError = NotADerivation
 -- | Instantiate a parsed expression into a derivation.
 instantiate :: NixExpr -> NixAction InstantiateError (StorePath Derivation)
 instantiate (NixExpr e) =
-  fmapLT parseInstantiateError
+  fmapLT (fmap parseInstantiateError)
     $ evalNixOutput "nix-instantiate" [ "-E", e ]
       >>= toNixFilePath StorePath
 
@@ -74,7 +77,7 @@ instantiate (NixExpr e) =
 -- That doesn’t mean it has to instantiate however.
 eval :: NixExpr -> NixAction InstantiateError ()
 eval (NixExpr e) = do
-  _ <- fmapLT parseInstantiateError
+  _ <- fmapLT (fmap parseInstantiateError)
     $ evalNixOutput "nix-instantiate" [ "--eval", "-E", e ]
   pure ()
 
@@ -102,7 +105,7 @@ addToStore fp = storeOp [ "--add", toS fp ]
 
 storeOp :: [Text] -> NixAction RealizeError (StorePath Realized)
 storeOp op =
-  fmapLT OtherRealizeError
+  fmapLT (fmap OtherRealizeError)
     $ evalNixOutput "nix-store" op
       >>= toNixFilePath StorePath
 
@@ -116,20 +119,27 @@ data NixError = ParseError ParseError
 -- | A convenience function to directly realize a nix expression.
 -- Any errors are put into a combined error type.
 parseInstRealize :: Text -> NixAction NixError (StorePath Realized)
-parseInstRealize = withExceptT ParseError . parseNixExpr
-               >=> withExceptT InstantiateError . instantiate
-               >=> withExceptT RealizeError . realize
+parseInstRealize = liftError ParseError . parseNixExpr
+               >=> liftError InstantiateError . instantiate
+               >=> liftError RealizeError . realize
 
+liftError :: (e -> NixError) -> NixAction e a -> NixAction NixError a
+liftError f a = withExceptT (fmap f) a
 
 ------------------------------------------------------------------------------
 -- Helpers
 
 -- | Take args and return either error message or output path
-evalNixOutput :: Text -> [Text] -> NixAction Text Text
+evalNixOutput :: Text
+              -- ^ name of executable
+              -> [Text]
+              -- ^ arguments
+              -> NixAction Text Text
+              -- ^ error: (stderr, errormsg), success: path
 evalNixOutput exec args = do
   (exc, out, err) <- liftIO
     $ readProcessWithExitCode (toS exec) (map toS args) ""
-  case exc of
+  withExceptT (toS err,) $ case exc of
     ExitFailure _ -> throwE $
                        case mconcat . intersperse "\n"
                           . dropWhile (not.isPrefixOf "error: ")
@@ -143,4 +153,5 @@ evalNixOutput exec args = do
 toNixFilePath :: (String -> a) -> Text -> NixAction Text a
 toNixFilePath a p@(toS -> ps) =
   if isValid ps then (pure $ a ps)
-  else (throwE $ p <> " is not a filepath!")
+  else (throwE $ (nostderr, p <> " is not a filepath!"))
+  where nostderr = mempty
