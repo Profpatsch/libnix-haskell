@@ -9,12 +9,12 @@ Portability : nix 1.11.x (maybe 1.x.x)
 This module directly calls the nix command line to convert
 textual nix expressions to derivations & realized storepaths.
 -}
-{-# LANGUAGE NoImplicitPrelude, ViewPatterns, OverloadedStrings, TupleSections #-}
+{-# LANGUAGE NoImplicitPrelude, ViewPatterns, OverloadedStrings, TupleSections, GeneralizedNewtypeDeriving #-}
 module Foreign.Nix.Shellout
-  ( NixAction
+  ( NixAction(unNixAction)
   , NixExpr, parseNixExpr
   , instantiate, realize, eval, addToStore
-  , parseInstRealize, liftError
+  , parseInstRealize
   , StorePath(fromStorePath), Derivation, Realized
   , InstantiateError(..), ParseError(..), RealizeError(..), NixError(..)
   ) where
@@ -30,10 +30,13 @@ import Text.Show (Show(..))
 ------------------------------------------------------------------------------
 -- Parsing
 
--- TODO: is it good to put stderr into the error?
--- TODO: newtype?
 -- | An ExceptT that also provides the whole nix stderr (for debugging purposes)
-type NixAction e a = ExceptT (Text, e) IO a
+newtype NixAction e a = NixAction
+  { unNixAction :: ExceptT (Text, e) IO a }
+  deriving (Functor, Applicative, Monad, MonadIO)
+
+instance Bifunctor NixAction where
+  bimap f g = NixAction . bimapExceptT (fmap f) g . unNixAction
 
 newtype NixExpr = NixExpr Text deriving (Show, Eq)
 
@@ -43,7 +46,7 @@ data ParseError = SyntaxError Text
 -- | Parse a nix expression and check for syntactic validity.
 parseNixExpr :: Text -> NixAction ParseError NixExpr
 parseNixExpr e =
-  bimapExceptT (fmap parseParseError) NixExpr
+  bimap parseParseError NixExpr
     $ evalNixOutput "nix-instantiate" [ "--parse", "-E", e ]
 
 
@@ -52,7 +55,6 @@ parseParseError
   (stripPrefix "error: syntax error, "
                -> Just mes) = SyntaxError $ mes
 parseParseError s           = OtherParseError $ s
-
 
 ------------------------------------------------------------------------------
 -- Instantiating
@@ -69,18 +71,16 @@ data InstantiateError = NotADerivation
 -- | Instantiate a parsed expression into a derivation.
 instantiate :: NixExpr -> NixAction InstantiateError (StorePath Derivation)
 instantiate (NixExpr e) =
-  fmapLT (fmap parseInstantiateError)
+  first parseInstantiateError
     $ evalNixOutput "nix-instantiate" [ "-E", e ]
       >>= toNixFilePath StorePath
 
 -- | Just tests if the expression can be evaluated.
 -- That doesn’t mean it has to instantiate however.
 eval :: NixExpr -> NixAction InstantiateError ()
-eval (NixExpr e) = do
-  _ <- fmapLT (fmap parseInstantiateError)
-    $ evalNixOutput "nix-instantiate" [ "--eval", "-E", e ]
-  pure ()
-
+eval (NixExpr e) =
+  void $ first parseInstantiateError
+       $ evalNixOutput "nix-instantiate" [ "--eval", "-E", e ]
 
 parseInstantiateError :: Text -> InstantiateError
 parseInstantiateError
@@ -105,7 +105,7 @@ addToStore fp = storeOp [ "--add", toS fp ]
 
 storeOp :: [Text] -> NixAction RealizeError (StorePath Realized)
 storeOp op =
-  fmapLT (fmap OtherRealizeError)
+  first OtherRealizeError
     $ evalNixOutput "nix-store" op
       >>= toNixFilePath StorePath
 
@@ -119,12 +119,9 @@ data NixError = ParseError ParseError
 -- | A convenience function to directly realize a nix expression.
 -- Any errors are put into a combined error type.
 parseInstRealize :: Text -> NixAction NixError (StorePath Realized)
-parseInstRealize = liftError ParseError . parseNixExpr
-               >=> liftError InstantiateError . instantiate
-               >=> liftError RealizeError . realize
-
-liftError :: (e -> NixError) -> NixAction e a -> NixAction NixError a
-liftError f a = withExceptT (fmap f) a
+parseInstRealize = first ParseError . parseNixExpr
+               >=> first InstantiateError . instantiate
+               >=> first RealizeError . realize
 
 ------------------------------------------------------------------------------
 -- Helpers
@@ -136,7 +133,7 @@ evalNixOutput :: Text
               -- ^ arguments
               -> NixAction Text Text
               -- ^ error: (stderr, errormsg), success: path
-evalNixOutput exec args = do
+evalNixOutput exec args = NixAction $ do
   (exc, out, err) <- liftIO
     $ readProcessWithExitCode (toS exec) (map toS args) ""
   withExceptT (toS err,) $ case exc of
@@ -151,7 +148,7 @@ evalNixOutput exec args = do
 
 -- | Apply filePath p to constructor a if it’s a valid filepath
 toNixFilePath :: (String -> a) -> Text -> NixAction Text a
-toNixFilePath a p@(toS -> ps) =
+toNixFilePath a p@(toS -> ps) = NixAction $
   if isValid ps then (pure $ a ps)
   else (throwE $ (nostderr, p <> " is not a filepath!"))
   where nostderr = mempty

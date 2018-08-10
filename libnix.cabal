@@ -2,15 +2,15 @@
 -- documentation, see http://haskell.org/cabal/users-guide/
 
 name:                libnix
-version:             0.0.1.0
--- synopsis:            
--- description:         
+version:             0.1.0.0
+synopsis:            Bindings to the nix package manager
+-- description:       
 license:             GPL-3
 license-file:        LICENSE
 author:              Profpatsch
 maintainer:          mail@profpatsch.de
 -- copyright:           
-category:            Foreign
+category:            Foreign, Nix
 build-type:          Simple
 -- extra-source-files:  
 cabal-version:       >=1.10
@@ -18,7 +18,7 @@ cabal-version:       >=1.10
 library
   exposed-modules:     Foreign.Nix.Shellout
   -- other-modules:       
-  build-depends:       base >=4.9 && <4.10
+  build-depends:       base >=4.9 && <5
                      , errors
                      , filepath
                      , protolude
@@ -32,6 +32,7 @@ test-suite tests
   type:                exitcode-stdio-1.0
   main-is:             Main.hs
   hs-source-dirs:      tests
+  other-modules:       TestShellout
   build-depends:       base
                      , directory
                      , errors

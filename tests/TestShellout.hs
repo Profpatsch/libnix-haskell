@@ -2,7 +2,6 @@
 module TestShellout where
 
 import Protolude
-import Control.Error hiding (isLeft)
 import System.IO (openTempFile, hClose)
 import System.Directory (getTemporaryDirectory)
 
@@ -54,7 +53,7 @@ multilineErrors = testCase "nixpkgs multiline stderr it parsed"
   $ parseEval "builtins.abort ''wow\nsuch error''"
   `isE` (Left $ OtherInstantiateError
            "error: evaluation aborted with the following error \
-           \message: ‘wow\nsuch error’")
+           \message: 'wow\nsuch error'")
 
 helloWorld = testCase "build the GNU hello package"
   $ assertNoFailure $ parseInstRealize "with import <nixpkgs> {}; hello"
@@ -79,15 +78,16 @@ parseEval = parseInstLike eval
 parseInstLike :: (NixExpr -> NixAction InstantiateError a)
               -> Text
               -> NixAction InstantiateError a
-parseInstLike like = withExceptT (const $ OtherInstantiateError "parse failed :(.")
+parseInstLike like =
+  first (\_ -> OtherInstantiateError "parse failed :(.")
               . parseNixExpr >=> like
 
 isE :: (Eq e, Eq a, Show a, Show e) => NixAction e a -> Either e a -> Assertion
-isE exT eith = runExceptT exT >>= (@?= eith)
+isE na eith = runExceptT (unNixAction na) >>= (@?= eith) . first snd
 
 assertNoFailure :: Show e => NixAction e a -> Assertion
-assertNoFailure exT = do
-  ei <- runExceptT exT
+assertNoFailure na = do
+  ei <- runExceptT (unNixAction na)
   case ei of
-    (Left e) -> assertFailure $ show e
+    (Left (_, e)) -> assertFailure $ show e
     (Right _) -> pure ()
