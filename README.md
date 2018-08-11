@@ -8,11 +8,12 @@ guaranteed to the user.
 
 The project consists of two broad steps:
 
-1. bindings to the command line tool
+1. bindings to the command line tools
 2. bindings to the nix libraries themselves
 
-At the moment, an alpha version of 1. is implemented, together with a small
-number of tests to check for possible changes in the interface, which consists mainly of three functions:
+At the moment, an beta version of 1. is implemented, together with a small
+number of tests to check for possible changes in the interface,
+which consists mainly of three functions:
 
 ```haskell
 parseNixExpr :: Text                 -> NixAction ParseError NixExpr
@@ -30,6 +31,19 @@ parseInstRealize :: Text    -> NixAction NixError (StorePath Realized)
 where `parseInstRealize` performs all three steps at once.
 
 [nix]: https://github.com/NixOS/nix
+
+
+## Nix Prefetch Wrappers
+
+We implement an additional module that creates nicely typed wrappers
+for `nix-prefetch-X` tools, please see the module documentation what
+is supported exactly.
+
+```
+url :: UrlOptions -> NixAction PrefetchError (Sha256, StorePath Realized)
+git :: GitOptions -> NixAction PrefetchError GitOutput
+```
+
 
 ## C++ bindings
 
