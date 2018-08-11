@@ -10,11 +10,11 @@ This module directly calls the nix command line to convert
 textual nix expressions to derivations & realized storepaths.
 -}
 module Foreign.Nix.Shellout
-  ( NixAction(unNixAction)
+  ( NixAction(..)
   , NixExpr, parseNixExpr
   , instantiate, realize, eval, addToStore
   , parseInstRealize
-  , StorePath(fromStorePath), Derivation, Realized
+  , StorePath(fromStorePath)
   , InstantiateError(..), ParseError(..), RealizeError(..), NixError(..)
   ) where
 
@@ -26,16 +26,10 @@ import System.FilePath (isValid)
 import System.Process (readProcessWithExitCode)
 import Text.Show (Show(..))
 
+import Foreign.Nix.Shellout.Types
+
 ------------------------------------------------------------------------------
 -- Parsing
-
--- | An ExceptT that also provides the whole nix stderr (for debugging purposes)
-newtype NixAction e a = NixAction
-  { unNixAction :: ExceptT (Text, e) IO a }
-  deriving (Functor, Applicative, Monad, MonadIO)
-
-instance Bifunctor NixAction where
-  bimap f g = NixAction . bimapExceptT (fmap f) g . unNixAction
 
 newtype NixExpr = NixExpr Text deriving (Show, Eq)
 
@@ -57,11 +51,6 @@ parseParseError s           = OtherParseError $ s
 
 ------------------------------------------------------------------------------
 -- Instantiating
-
-newtype StorePath a = StorePath { fromStorePath :: FilePath }
-                        deriving (Eq, Show)
-data Derivation
-data Realized
 
 data InstantiateError = NotADerivation
               | UnexpectedError Text

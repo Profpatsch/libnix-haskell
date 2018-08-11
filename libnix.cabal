@@ -17,7 +17,7 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     Foreign.Nix.Shellout
-  -- other-modules:       
+                     , Foreign.Nix.Shellout.Types
   build-depends:       base >=4.9 && <5
                      , errors
                      , filepath
