@@ -23,9 +23,9 @@ import Control.Error hiding (bool, err)
 import Data.String (String)
 import Data.Text (stripPrefix, lines, isPrefixOf)
 import System.FilePath (isValid)
-import System.Process (readProcessWithExitCode)
 import Text.Show (Show(..))
 
+import qualified Foreign.Nix.Shellout.Helpers as Helpers
 import Foreign.Nix.Shellout.Types
 
 ------------------------------------------------------------------------------
@@ -121,18 +121,16 @@ evalNixOutput :: Text
               -- ^ arguments
               -> NixAction Text Text
               -- ^ error: (stderr, errormsg), success: path
-evalNixOutput exec args = NixAction $ do
-  (exc, out, err) <- liftIO
-    $ readProcessWithExitCode (toS exec) (map toS args) ""
-  withExceptT (toS err,) $ case exc of
-    ExitFailure _ -> throwE $
-                       case mconcat . intersperse "\n"
-                          . dropWhile (not.isPrefixOf "error: ")
-                          . lines $ toS err of
-                         "" -> "nix didn’t output any error message"
-                         s  -> s
-    ExitSuccess   -> tryLast
-                       "nix didn’t output a store path" (lines $ toS out)
+evalNixOutput = Helpers.readProcess (\(out, err) -> \case
+  ExitFailure _ -> throwE $
+    case mconcat . intersperse "\n"
+      . dropWhile (not . isPrefixOf "error: ")
+      . lines $ toS err of
+      "" -> "nix didn’t output any error message"
+      s  -> s
+  ExitSuccess -> tryLast
+      "nix didn’t output a store path" (lines $ toS out))
+
 
 -- | Apply filePath p to constructor a if it’s a valid filepath
 toNixFilePath :: (String -> a) -> Text -> NixAction Text a
