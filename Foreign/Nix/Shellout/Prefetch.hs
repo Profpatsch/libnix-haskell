@@ -1,9 +1,9 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, GeneralizedNewtypeDeriving #-}
 module Foreign.Nix.Shellout.Prefetch
 ( PrefetchError(..)
 , runNixAction, NixAction(..)
-, Sha256(..)
 , url, UrlOptions(..)
+, Url(..), Sha256(..)
 ) where
 
 import Protolude
@@ -18,13 +18,14 @@ data PrefetchError
   | UnknownPrefetchError
   deriving (Eq, Show)
 
+newtype Url = Url { unUrl :: Text } deriving (Show, Eq, IsString)
+newtype Sha256 = Sha256 { unSha256 :: Text } deriving (Show, Eq, IsString)
+
 data UrlOptions = UrlOptions
-  { urlUrl :: Text
+  { urlUrl :: Url
   , urlUnpack :: Bool
   , urlName :: Maybe Text }
 
-data Sha256 = Sha256 Text
-  deriving (Show, Eq)
 
 url :: UrlOptions -> NixAction PrefetchError (Sha256, StorePath Realized)
 url UrlOptions{..} = Helpers.readProcess handler exec args
@@ -34,7 +35,7 @@ url UrlOptions{..} = Helpers.readProcess handler exec args
          <> maybe [] (\n -> ["--name", n]) urlName
          <> [ "--type", "sha256"
             , "--print-path"
-            , urlUrl ]
+            , unUrl urlUrl ]
     handler (out, _) = \case
       ExitSuccess -> withExceptT PrefetchOutputMalformed $ do
         let ls = lines $ stripEnd out
