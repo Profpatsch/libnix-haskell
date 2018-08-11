@@ -1,10 +1,24 @@
+{-|
+Description : Wrapper for the @nix-prefetch@ CLI utilities
+Copyright   : Profpatsch, 2018
+License     : GPL-3
+Stability   : experimental
+Portability : nix-prefetch-scripts 2018 (no version number)
+
+Calls to the @nix-prefetch-X@ utilities, to parse their output
+into nice reusable data types.
+-}
 {-# LANGUAGE RecordWildCards, GeneralizedNewtypeDeriving, ApplicativeDo #-}
 module Foreign.Nix.Shellout.Prefetch
-( PrefetchError(..)
-, runNixAction, NixAction(..)
-, Url(..), Sha256(..)
-, url, UrlOptions(..), defaultUrlOptions
+( -- * nix-prefetch-url
+  url, UrlOptions(..), defaultUrlOptions
+  -- * nix-prefetch-git
 , git, GitOptions(..), defaultGitOptions, GitOutput(..)
+  -- * Types
+, PrefetchError(..)
+, Url(..), Sha256(..)
+  -- * Reexports
+, runNixAction, NixAction(..)
 ) where
 
 import Protolude
@@ -19,11 +33,16 @@ import qualified Foreign.Nix.Shellout.Helpers as Helpers
 
 data PrefetchError
   = PrefetchOutputMalformed Text
+    -- ^ the tool’s output could not be parsed as expected
   | ExpectedHashError
+    -- ^ an expected hash was given and not valid
   | UnknownPrefetchError
+    -- ^ catch-all error
   deriving (Eq, Show)
 
+-- | A descriptive type for URLs.
 newtype Url = Url { unUrl :: Text } deriving (Show, Eq, IsString)
+-- | A @sha-256@ hash.
 newtype Sha256 = Sha256 { unSha256 :: Text } deriving (Show, Eq, IsString)
 
 data UrlOptions = UrlOptions
@@ -86,8 +105,8 @@ data GitOptions = GitOptions
   }
 
 -- | Takes the url, mirrors the default `fetchgit` options in nixpkgs:
--- | no deep clone, no @.git@, fetches submodules by default.
--- | By default, the latest default @rev@ is used.
+-- no deep clone, no @.git@, fetches submodules by default.
+-- By default, the latest default @rev@ is used.
 defaultGitOptions :: Url -> GitOptions
 defaultGitOptions u = GitOptions
   { gitUrl = u
@@ -103,8 +122,10 @@ data GitOutput = GitOutput
   , gitOutputSha256 :: Sha256
     -- ^ the hash
   , gitOuputPath :: StorePath Realized
+    -- ^ the store path of the result
   } deriving (Show, Eq)
 
+-- | Runs @nix-prefetch-git@.
 git :: GitOptions -> NixAction PrefetchError GitOutput
 git GitOptions{..} = Helpers.readProcess handler exec args
   where

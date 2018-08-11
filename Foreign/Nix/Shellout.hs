@@ -1,22 +1,31 @@
 {-|
 Module      : Foreign.Nix.Shellout
-Description : Interface to the nix package manager that calls the CLI
-Copyright   : Profpatsch, 2016
+Description : Interface to the nix package manager’s CLI
+Copyright   : Profpatsch, 2016–2018
 License     : GPL-3
 Stability   : experimental
-Portability : nix 1.11.x (maybe 1.x.x)
+Portability : nix 1.11.x, nix 2.0
 
-This module directly calls the nix command line to convert
+Calls to the nix command line to convert
 textual nix expressions to derivations & realized storepaths.
 -}
 module Foreign.Nix.Shellout
-  ( NixAction(..)
-  , NixExpr, parseNixExpr
-  , instantiate, realize, eval, addToStore
-  , parseInstRealize
-  , StorePath(fromStorePath)
-  , InstantiateError(..), ParseError(..), RealizeError(..), NixError(..)
-  ) where
+( -- * Calling nix
+  -- ** Parse
+  parseNixExpr, ParseError(..)
+  -- ** Instantiate
+, instantiate, InstantiateError(..)
+, eval
+  -- ** Realize
+, realize, RealizeError(..)
+  -- ** Helpers
+, addToStore
+, parseInstRealize
+, NixError(..)
+  -- * Types
+, StorePath(fromStorePath), NixExpr
+, runNixAction, NixAction(..)
+) where
 
 import Protolude hiding (show, isPrefixOf)
 import Control.Error hiding (bool, err)
@@ -31,11 +40,14 @@ import Foreign.Nix.Shellout.Types
 ------------------------------------------------------------------------------
 -- Parsing
 
+-- | A sucessfully parsed nix expression.
 newtype NixExpr = NixExpr Text deriving (Show, Eq)
 
 data ParseError
   = SyntaxError Text
+    -- ^ the input string was not a syntactically valid nix expression
   | UnknownParseError
+    -- ^ catch-all error
   deriving (Show, Eq)
 
 -- | Parse a nix expression and check for syntactic validity.
@@ -56,7 +68,9 @@ parseParseError _           = UnknownParseError
 
 data InstantiateError
   = NotADerivation
+    -- ^ the given expression does not evaluate to a derivaton
   | UnknownInstantiateError
+    -- ^ catch-all error
   deriving (Show, Eq)
 
 -- | Instantiate a parsed expression into a derivation.
@@ -91,6 +105,7 @@ realize :: StorePath Derivation -> NixAction RealizeError (StorePath Realized)
 realize (StorePath d) =
      storeOp [ "-r", toS d ]
 
+-- | Copy the given file or folder to the nix store and return it’s path.
 addToStore :: FilePath -> NixAction RealizeError (StorePath Realized)
 addToStore fp = storeOp [ "--add", toS fp ]
 
@@ -103,9 +118,11 @@ storeOp op =
 ------------------------------------------------------------------------------
 -- Convenience
 
-data NixError = ParseError ParseError
-              | InstantiateError InstantiateError
-              | RealizeError RealizeError deriving (Show, Eq)
+-- | Combines all error types that could happen.
+data NixError
+  = ParseError ParseError
+  | InstantiateError InstantiateError
+  | RealizeError RealizeError deriving (Show, Eq)
 
 -- | A convenience function to directly realize a nix expression.
 -- Any errors are put into a combined error type.
