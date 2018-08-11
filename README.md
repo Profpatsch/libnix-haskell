@@ -39,7 +39,7 @@ We implement an additional module that creates nicely typed wrappers
 for `nix-prefetch-X` tools, please see the module documentation what
 is supported exactly.
 
-```
+```haskell
 url :: UrlOptions -> NixAction PrefetchError (Sha256, StorePath Realized)
 git :: GitOptions -> NixAction PrefetchError GitOutput
 ```
