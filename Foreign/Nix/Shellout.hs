@@ -33,8 +33,10 @@ import Foreign.Nix.Shellout.Types
 
 newtype NixExpr = NixExpr Text deriving (Show, Eq)
 
-data ParseError = SyntaxError Text
-                | OtherParseError Text deriving (Show, Eq)
+data ParseError
+  = SyntaxError Text
+  | UnknownParseError
+  deriving (Show, Eq)
 
 -- | Parse a nix expression and check for syntactic validity.
 parseNixExpr :: Text -> NixAction ParseError NixExpr
@@ -47,14 +49,15 @@ parseParseError :: Text -> ParseError
 parseParseError
   (stripPrefix "error: syntax error, "
                -> Just mes) = SyntaxError $ mes
-parseParseError s           = OtherParseError $ s
+parseParseError _           = UnknownParseError
 
 ------------------------------------------------------------------------------
 -- Instantiating
 
-data InstantiateError = NotADerivation
-              | UnexpectedError Text
-              | OtherInstantiateError Text deriving (Show, Eq)
+data InstantiateError
+  = NotADerivation
+  | UnknownInstantiateError
+  deriving (Show, Eq)
 
 -- | Instantiate a parsed expression into a derivation.
 instantiate :: NixExpr -> NixAction InstantiateError (StorePath Derivation)
@@ -74,13 +77,13 @@ parseInstantiateError :: Text -> InstantiateError
 parseInstantiateError
   (stripPrefix "error: expression does not evaluate to a derivation"
                -> Just _) = NotADerivation
-parseInstantiateError s   = OtherInstantiateError $ s
+parseInstantiateError _   = UnknownInstantiateError
 
 
 ------------------------------------------------------------------------------
 -- Realizing
 
-data RealizeError = OtherRealizeError Text deriving (Show, Eq)
+data RealizeError = UnknownRealizeError deriving (Show, Eq)
 
 -- | Finally derivations are realized into full store outputs.
 -- This will typically take a while so it should be executed asynchronously.
@@ -93,7 +96,7 @@ addToStore fp = storeOp [ "--add", toS fp ]
 
 storeOp :: [Text] -> NixAction RealizeError (StorePath Realized)
 storeOp op =
-  first OtherRealizeError
+  first (const UnknownRealizeError)
     $ evalNixOutput "nix-store" op
       >>= toNixFilePath StorePath
 
