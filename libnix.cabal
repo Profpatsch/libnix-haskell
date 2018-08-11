@@ -21,10 +21,10 @@ library
                      , Foreign.Nix.Shellout.Types
   other-modules:       Foreign.Nix.Shellout.Helpers
   build-depends:       base >=4.9 && <5
-                     , aeson
-                     , errors
+                     , aeson >=1.0.0.0 && <1.5.0.0
+                     , errors >=2.2.0 && <2.4.0
                      , filepath
-                     , protolude
+                     , protolude ==0.2.*
                      , process
                      , text
   -- hs-source-dirs:      
@@ -44,6 +44,7 @@ test-suite tests
   build-depends:       base
                      , directory
                      , errors
+                     , text
                      , libnix
                      , protolude
                      , tasty

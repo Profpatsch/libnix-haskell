@@ -1,6 +1,7 @@
 module TestShellout where
 
-import Protolude
+import Protolude hiding (check)
+import qualified Data.Text as T
 import System.IO (openTempFile, hClose)
 import System.Directory (getTemporaryDirectory)
 
@@ -30,16 +31,16 @@ nixpkgsExists, multilineErrors, helloWorld, copyTempfileToStore :: TestTree
 
 syntaxError = testCase "syntax error"
   $ parseNixExpr ";"
-  `isE` (Left $ SyntaxError "unexpected ';', at (string):1:1")
+  `isE` (Left ("", SyntaxError "unexpected ';', at (string):1:1"))
 
 infiniteRecursion = testCase "infinite recursion"
   $ parseInst "let a = a; in a"
-  `isE` (Left $ OtherInstantiateError
-          "error: infinite recursion encountered, at (string):1:10")
+  `isE` (Left ( "error: infinite recursion encountered, at (string):1:10"
+              , UnknownInstantiateError))
 
 notADerivation = testCase "not a derivation"
   $ parseInst "42"
-  `isE` (Left $ NotADerivation)
+  `isE` (Left ("", NotADerivation))
 
 someDerivation = testCase "a basic derivation"
   $ assertNoFailure $ parseInst
@@ -50,9 +51,10 @@ nixpkgsExists = testCase "nixpkgs is accessible"
 
 multilineErrors = testCase "nixpkgs multiline stderr it parsed"
   $ parseEval "builtins.abort ''wow\nsuch error''"
-  `isE` (Left $ OtherInstantiateError
-           "error: evaluation aborted with the following error \
-           \message: 'wow\nsuch error'")
+  `isE` (Left
+           ( "error: evaluation aborted with the following error \
+             \message: 'wow\nsuch error'"
+           , UnknownInstantiateError))
 
 helloWorld = testCase "build the GNU hello package"
   $ assertNoFailure $ parseInstRealize "with import <nixpkgs> {}; hello"
@@ -78,11 +80,22 @@ parseInstLike :: (NixExpr -> NixAction InstantiateError a)
               -> Text
               -> NixAction InstantiateError a
 parseInstLike like =
-  first (\_ -> OtherInstantiateError "parse failed :(.")
+  first (\_ -> UnknownInstantiateError)
               . parseNixExpr >=> like
 
-isE :: (Eq e, Eq a, Show a, Show e) => NixAction e a -> Either e a -> Assertion
-isE na eith = runExceptT (unNixAction na) >>= (@?= eith) . first snd
+isE :: (Eq e, Eq a, Show a, Show e)
+    => NixAction e a
+    -> Either (Text, e) a
+       -- ^ Left (subset of stdout, error)
+    -> Assertion
+isE na match = runExceptT (unNixAction na) >>= check match
+  where
+    check (Left (outMatch, err)) (Left (out, err')) = do
+      assertBool "stderr not matched" (outMatch `T.isInfixOf` out)
+      err @=? err'
+    check (Right _) (Left _) =
+      assertFailure "output should have succeeded, but is failed"
+    check a b = a @=? b
 
 assertNoFailure :: Show e => NixAction e a -> Assertion
 assertNoFailure na = do

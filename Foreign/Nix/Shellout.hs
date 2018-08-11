@@ -23,7 +23,8 @@ module Foreign.Nix.Shellout
 , parseInstRealize
 , NixError(..)
   -- * Types
-, StorePath(fromStorePath), NixExpr
+, StorePath(fromStorePath), Derivation, Realized
+, NixExpr
 , runNixAction, NixAction(..)
 ) where
 
