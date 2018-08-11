@@ -9,7 +9,6 @@ Portability : nix 1.11.x (maybe 1.x.x)
 This module directly calls the nix command line to convert
 textual nix expressions to derivations & realized storepaths.
 -}
-{-# LANGUAGE NoImplicitPrelude, ViewPatterns, OverloadedStrings, TupleSections, GeneralizedNewtypeDeriving #-}
 module Foreign.Nix.Shellout
   ( NixAction(unNixAction)
   , NixExpr, parseNixExpr

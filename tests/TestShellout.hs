@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedStrings, LambdaCase, NoImplicitPrelude #-}
 module TestShellout where
 
 import Protolude
