@@ -17,6 +17,7 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     Foreign.Nix.Shellout
+                     , Foreign.Nix.Shellout.Prefetch
                      , Foreign.Nix.Shellout.Types
   other-modules:       Foreign.Nix.Shellout.Helpers
   build-depends:       base >=4.9 && <5
