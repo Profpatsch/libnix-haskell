@@ -26,7 +26,11 @@ readProcess with exec args = NixAction $ do
   (exc, out, err) <- liftIO
     $ readCreateProcessWithExitCodeAndEncoding
         (P.proc (toS exec) (map toS args)) SIO.utf8 ""
-  withExceptT (err,) $ with (out, err) exc
+  withExceptT
+    (\e -> NixActionError
+             { actionStderr = err
+             , actionError = e })
+    $ with (out, err) exc
 
 
 -- Copied & modified from System.Process (process-1.6.4.0)

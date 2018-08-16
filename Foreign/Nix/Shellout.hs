@@ -23,9 +23,9 @@ module Foreign.Nix.Shellout
 , parseInstRealize
 , NixError(..)
   -- * Types
-, StorePath(fromStorePath), Derivation, Realized
+, StorePath(..), Derivation, Realized
 , NixExpr
-, runNixAction, NixAction(..)
+, runNixAction, NixAction(..), NixActionError(..)
 ) where
 
 import Protolude hiding (show, isPrefixOf)
@@ -42,7 +42,7 @@ import Foreign.Nix.Shellout.Types
 -- Parsing
 
 -- | A sucessfully parsed nix expression.
-newtype NixExpr = NixExpr Text deriving (Show, Eq)
+newtype NixExpr = NixExpr Text deriving (Show)
 
 data ParseError
   = SyntaxError Text
@@ -157,5 +157,7 @@ evalNixOutput = Helpers.readProcess (\(out, err) -> \case
 toNixFilePath :: (String -> a) -> Text -> NixAction Text a
 toNixFilePath a p@(toS -> ps) = NixAction $
   if isValid ps then (pure $ a ps)
-  else (throwE $ (nostderr, p <> " is not a filepath!"))
+  else (throwE $ NixActionError
+          { actionStderr = nostderr
+          , actionError = p <> " is not a filepath!" })
   where nostderr = mempty

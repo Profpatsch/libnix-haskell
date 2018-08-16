@@ -18,7 +18,7 @@ module Foreign.Nix.Shellout.Prefetch
 , PrefetchError(..)
 , Url(..), Sha256(..)
   -- * Reexports
-, runNixAction, NixAction(..)
+, runNixAction, NixAction(..), NixActionError(..)
 ) where
 
 import Protolude

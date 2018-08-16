@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 module TestShellout where
 
 import Protolude hiding (check)
@@ -30,8 +31,8 @@ syntaxError, infiniteRecursion, notADerivation, someDerivation :: TestTree
 nixpkgsExists, multilineErrors, helloWorld, copyTempfileToStore :: TestTree
 
 syntaxError = testCase "syntax error"
-  $ parseNixExpr ";"
-  `isE` (Left ("", SyntaxError "unexpected ';', at (string):1:1"))
+  $ parseNixExpr ";" `isENoFail`
+      (Left ("", SyntaxError "unexpected ';', at (string):1:1"))
 
 infiniteRecursion = testCase "infinite recursion"
   $ parseInst "let a = a; in a"
@@ -83,23 +84,42 @@ parseInstLike like =
   first (\_ -> UnknownInstantiateError)
               . parseNixExpr >=> like
 
-isE :: (Eq e, Eq a, Show a, Show e)
+isE :: (Eq a, Eq e, Show a, Show e)
     => NixAction e a
     -> Either (Text, e) a
        -- ^ Left (subset of stdout, error)
     -> Assertion
-isE na match = runExceptT (unNixAction na) >>= check match
-  where
-    check (Left (outMatch, err)) (Left (out, err')) = do
-      assertBool "stderr not matched" (outMatch `T.isInfixOf` out)
-      err @=? err'
-    check (Right _) (Left _) =
-      assertFailure "output should have succeeded, but is failed"
-    check a b = a @=? b
+isE na match = runNixAction na >>= \res ->
+  case (match, res) of
+    ((Right a), (Right b)) -> a @=? b
+    (match', res') -> check match' res'
+
+isENoFail :: (Eq e, Show a, Show e)
+          => NixAction e a
+          -> Either (Text, e) a
+            -- ^ Left (subset of stdout, error)
+          -> Assertion
+isENoFail na match = runNixAction na >>= check match
+
+check :: (Eq a, Show a)
+      => (Either (Text, a) _x)
+      -> (Either (NixActionError a) _x)
+      -> Assertion
+check (Left (outMatch, err))
+      (Left (NixActionError
+                { actionStderr = out
+                , actionError = err' })) = do
+  assertBool "stderr not matched" (outMatch `T.isInfixOf` out)
+  err @=? err'
+check (Right _) (Left _) =
+  assertFailure "output should have succeeded, but it failed"
+check (Left _) (Right _) =
+  assertFailure "output should have failed, but it succeeded"
+check _ _ = panic "handled by isE"
 
 assertNoFailure :: Show e => NixAction e a -> Assertion
 assertNoFailure na = do
-  ei <- runExceptT (unNixAction na)
+  ei <- runNixAction na
   case ei of
-    (Left (_, e)) -> assertFailure $ show e
+    (Left naErr) -> assertFailure $ show $ actionError naErr
     (Right _) -> pure ()
