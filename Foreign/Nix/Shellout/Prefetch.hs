@@ -22,6 +22,7 @@ module Foreign.Nix.Shellout.Prefetch
 ) where
 
 import Protolude
+import qualified Protolude.Conv
 import Control.Error hiding (bool, err)
 import qualified Data.Text as T
 
@@ -153,7 +154,7 @@ git GitOptions{..} = Helpers.readProcess handler exec args
 
         (gitOutputRev, gitOutputSha256)
           <- ExceptT . pure . first jsonError $ do
-            val <- Aeson.eitherDecode' (toS out)
+            val <- Aeson.eitherDecode' (Protolude.Conv.toS out)
             flip AesonT.parseEither val
               $ Aeson.withObject "GitPrefetchOutput" $ \obj -> do
                     (,) <$> obj Aeson..: "rev"

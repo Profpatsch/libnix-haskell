@@ -31,7 +31,7 @@ library
                      , aeson >=1.0.0.0 && <1.5.0.0
                      , errors >=2.2.0 && <2.4.0
                      , filepath
-                     , protolude ==0.2.*
+                     , protolude ==0.3.*
                      , process
                      , text
   -- hs-source-dirs:      
