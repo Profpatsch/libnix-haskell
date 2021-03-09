@@ -28,7 +28,7 @@ library
                      , Foreign.Nix.Shellout.Types
   other-modules:       Foreign.Nix.Shellout.Helpers
   build-depends:       base >=4.9 && <5
-                     , aeson >=1.0.0.0 && <1.5.0.0
+                     , aeson >=1.0.0.0 && <1.6.0.0
                      , errors >=2.2.0 && <2.4.0
                      , filepath
                      , protolude ==0.3.*
