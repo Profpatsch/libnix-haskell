@@ -1,3 +1,6 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 {-|
 Module      : Foreign.Nix.Shellout
 Description : Interface to the nix package manager’s CLI
@@ -28,15 +31,24 @@ module Foreign.Nix.Shellout
 , runNixAction, NixAction(..), NixActionError(..)
 ) where
 
-import Protolude hiding (show, isPrefixOf)
-import Control.Error hiding (bool, err)
-import Data.String (String)
-import Data.Text (stripPrefix, lines, isPrefixOf)
-import System.FilePath (isValid)
-import Text.Show (Show(..))
+import Control.Error ( throwE, tryLast )
+import Data.Text (stripPrefix, lines, isPrefixOf, Text)
 
 import qualified Foreign.Nix.Shellout.Helpers as Helpers
 import Foreign.Nix.Shellout.Types
+    ( Realized,
+      Derivation,
+      StorePath(..),
+      NixActionError(..),
+      NixAction(..),
+      runNixAction )
+import qualified Data.Text as Text
+import System.Exit (ExitCode(ExitFailure, ExitSuccess))
+import Data.Bifunctor (bimap, Bifunctor (first))
+import Control.Monad ((>=>))
+import qualified System.FilePath as FilePath
+import Data.Function ((&))
+import qualified Data.List as List
 
 ------------------------------------------------------------------------------
 -- Parsing
@@ -84,9 +96,10 @@ instantiate (NixExpr e) =
 -- | Just tests if the expression can be evaluated.
 -- That doesn’t mean it has to instantiate however.
 eval :: NixExpr -> NixAction InstantiateError ()
-eval (NixExpr e) =
-  void $ first parseInstantiateError
+eval (NixExpr e) = do
+  _instantiateOutput <- first parseInstantiateError
        $ evalNixOutput "nix-instantiate" [ "--eval", "-E", e ]
+  pure ()
 
 parseInstantiateError :: Text -> InstantiateError
 parseInstantiateError
@@ -104,11 +117,11 @@ data RealizeError = UnknownRealizeError deriving (Show, Eq)
 -- This will typically take a while so it should be executed asynchronously.
 realize :: StorePath Derivation -> NixAction RealizeError (StorePath Realized)
 realize (StorePath d) =
-     storeOp [ "-r", toS d ]
+     storeOp [ "-r", Text.pack d ]
 
 -- | Copy the given file or folder to the nix store and return it’s path.
 addToStore :: FilePath -> NixAction RealizeError (StorePath Realized)
-addToStore fp = storeOp [ "--add", toS fp ]
+addToStore fp = storeOp [ "--add", Text.pack fp ]
 
 storeOp :: [Text] -> NixAction RealizeError (StorePath Realized)
 storeOp op =
@@ -144,20 +157,23 @@ evalNixOutput :: Text
               -- ^ error: (stderr, errormsg), success: path
 evalNixOutput = Helpers.readProcess (\(out, err) -> \case
   ExitFailure _ -> throwE $
-    case mconcat . intersperse "\n"
-      . dropWhile (not . isPrefixOf "error: ")
-      . lines $ toS err of
+    case
+      err
+        & Text.lines
+        & dropWhile (not . isPrefixOf "error: ")
+        & List.intersperse "\n"
+        & mconcat of
       "" -> "nix didn’t output any error message"
       s  -> s
   ExitSuccess -> tryLast
-      "nix didn’t output a store path" (lines $ toS out))
+      "nix didn’t output a store path" (Data.Text.lines out))
 
 
 -- | Apply filePath p to constructor a if it’s a valid filepath
 toNixFilePath :: (String -> a) -> Text -> NixAction Text a
-toNixFilePath a p@(toS -> ps) = NixAction $
-  if isValid ps then (pure $ a ps)
-  else (throwE $ NixActionError
+toNixFilePath a p = NixAction $
+  if FilePath.isValid (Text.unpack p) then pure $ a (Text.unpack p)
+  else throwE $ NixActionError
           { actionStderr = nostderr
-          , actionError = p <> " is not a filepath!" })
+          , actionError = p <> " is not a filepath!" }
   where nostderr = mempty
