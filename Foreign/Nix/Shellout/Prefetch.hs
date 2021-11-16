@@ -9,6 +9,8 @@ Calls to the @nix-prefetch-X@ utilities, to parse their output
 into nice reusable data types.
 -}
 {-# LANGUAGE RecordWildCards, GeneralizedNewtypeDeriving, ApplicativeDo #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Foreign.Nix.Shellout.Prefetch
 ( -- * nix-prefetch-url
   url, UrlOptions(..), defaultUrlOptions
@@ -21,7 +23,6 @@ module Foreign.Nix.Shellout.Prefetch
 , runNixAction, NixAction(..), NixActionError(..)
 ) where
 
-import Protolude
 import Control.Error hiding (bool, err)
 import qualified Data.Text as T
 
@@ -30,6 +31,15 @@ import qualified Data.Aeson.Types as AesonT
 
 import Foreign.Nix.Shellout.Types
 import qualified Foreign.Nix.Shellout.Helpers as Helpers
+import Data.Text (Text)
+import Data.String (IsString)
+import GHC.IO.Exception (ExitCode(ExitFailure, ExitSuccess))
+import qualified Data.Text as Text
+import Data.Bool (bool)
+import Data.Bifunctor (first)
+import qualified Data.Text.Lazy as Text.Lazy
+import qualified Data.Text.Lazy.Encoding as Text.Lazy.Encoding
+import qualified Data.List as List
 
 data PrefetchError
   = PrefetchOutputMalformed Text
@@ -69,7 +79,7 @@ url :: UrlOptions -> NixAction PrefetchError (Sha256, StorePath Realized)
 url UrlOptions{..} = Helpers.readProcess handler exec args
   where
     exec = "nix-prefetch-url"
-    args =  bool [] ["--unpack"] urlUnpack
+    args = if urlUnpack then ["--unpack"] else []
          <> maybe [] (\n -> ["--name", n]) urlName
          <> [ "--type", "sha256"
             , "--print-path"
@@ -82,7 +92,7 @@ url UrlOptions{..} = Helpers.readProcess handler exec args
         path <- tryLast (exec <> " didn’t output a store path") ls
         sha  <- let errS = (exec <> " didn’t output a hash")
                 in tryInit errS ls >>= tryLast errS
-        pure (Sha256 sha, StorePath $ toS path)
+        pure (Sha256 sha, StorePath $ Text.unpack path)
       ExitFailure _ -> throwE $
         if "error: hash mismatch" `T.isPrefixOf` err
         then ExpectedHashError
@@ -137,23 +147,23 @@ git GitOptions{..} = Helpers.readProcess handler exec args
             -- we need @url [rev [hash]]@,
             -- otherwise we can’t expect a hash
             , unUrl gitUrl
-            , maybe "" identity gitRev ]
+            , fromMaybe "" gitRev ]
             -- hash comes last
          <> maybe [] (\(Sha256 h) -> [h]) gitExpectedHash
 
     handler (out, err) = \case
       ExitSuccess -> withExceptT PrefetchOutputMalformed $ do
-        let error msg = exec <> " " <> msg
+        let error' msg = exec <> " " <> msg
             jsonError :: [Char] -> Text
-            jsonError = \msg -> error (T.intercalate "\n"
+            jsonError = \msg -> error' (T.intercalate "\n"
                       [ "parsing json output failed:"
-                      , toS msg
+                      , Text.pack msg
                       , "The output was:"
                       , out ])
 
         (gitOutputRev, gitOutputSha256)
           <- ExceptT . pure . first jsonError $ do
-            val <- Aeson.eitherDecode' (toS out)
+            val <- Aeson.eitherDecode' (Text.Lazy.Encoding.encodeUtf8 $ Text.Lazy.fromStrict out)
             flip AesonT.parseEither val
               $ Aeson.withObject "GitPrefetchOutput" $ \obj -> do
                     (,) <$> obj Aeson..: "rev"
@@ -162,11 +172,11 @@ git GitOptions{..} = Helpers.readProcess handler exec args
         -- The path isn’t output in the json, but on stderr. :(
         -- So this is a bit more hacky than necessary.
         gitOuputPath <- case
-          find ("path is /nix/store" `T.isPrefixOf`) (T.lines err)
+          List.find ("path is /nix/store" `T.isPrefixOf`) (T.lines err)
           >>= T.stripPrefix "path is " of
           Nothing -> throwE
             $ error "could not find nix store output path on stderr"
-          Just path -> pure $ StorePath $ toS path
+          Just path -> pure $ StorePath $ Text.unpack path
 
         pure GitOutput{..}
 

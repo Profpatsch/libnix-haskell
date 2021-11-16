@@ -1,6 +1,6 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Foreign.Nix.Shellout.Helpers where
 
-import Protolude hiding (async, wait)
 import Foreign.Nix.Shellout.Types
 import qualified System.Process as P
 import qualified Data.Text.IO as TIO
@@ -8,8 +8,19 @@ import qualified Data.Text as T
 import qualified System.IO as SIO
 
 -- needed for ignoreSigPipe
-import GHC.IO.Exception (IOErrorType(..), IOException(..))
+-- needed for ignoreSigPipe
+import GHC.IO.Exception (IOErrorType(..), IOException(..), ExitCode)
 import Foreign.C.Error (Errno(Errno), ePIPE)
+import Data.Text (Text)
+import Control.Error (ExceptT, withExceptT)
+import Control.Concurrent (MVar, newEmptyMVar, forkIO, takeMVar, putMVar, killThread)
+import Control.DeepSeq (rnf)
+
+import Control.Exception (SomeException, throwIO, onException, try, mask, handle, evaluate)
+
+import Control.Monad (unless)
+import Control.Monad.IO.Class (liftIO)
+import qualified Data.Text as Text
 
 -- | Read the output of a process into a NixAction.
 -- | Keeps stderr if process returns a failure exit code.
@@ -25,7 +36,7 @@ readProcess :: ((Text, Text) -> ExitCode -> ExceptT e IO a)
 readProcess with exec args = NixAction $ do
   (exc, out, err) <- liftIO
     $ readCreateProcessWithExitCodeAndEncoding
-        (P.proc (toS exec) (map toS args)) SIO.utf8 ""
+        (P.proc (Text.unpack exec) (map Text.unpack args)) SIO.utf8 ""
   withExceptT
     (\e -> NixActionError
              { actionStderr = err
@@ -66,7 +77,7 @@ readCreateProcessWithExitCodeAndEncoding cp encoding input = do
 
           -- now write any input
           unless (T.null input) $
-            ignoreSigPipe $ hPutStr inh input
+            ignoreSigPipe $ TIO.hPutStr inh input
           -- hClose performs implicit hFlush, and thus may trigger a SIGPIPE
           ignoreSigPipe $ SIO.hClose inh
 

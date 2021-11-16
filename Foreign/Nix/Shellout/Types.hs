@@ -7,8 +7,10 @@ Stability   : experimental
 {-# LANGUAGE GeneralizedNewtypeDeriving, DeriveFunctor #-}
 module Foreign.Nix.Shellout.Types where
 
-import Protolude
 import Control.Error
+import Control.Monad.IO.Class (MonadIO)
+import Data.Text (Text)
+import Data.Bifunctor (Bifunctor (bimap))
 
 -- | Calls a command that returns an error and the whole stderr on failure.
 newtype NixAction e a = NixAction
