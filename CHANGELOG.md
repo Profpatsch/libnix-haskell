@@ -1,5 +1,9 @@
 # libnix
 
+## 0.4.0.1 -- 2021-11-19
+
+* Fix `Prefetch.url`. The constructed command was missing flags for `urlUnpack = True`.
+
 ## 0.4.0.0 -- 2021-11-19
 
 * Allow setting a log function when running a nix action, which can log command invocations.

@@ -79,7 +79,7 @@ url :: (MonadIO m) => UrlOptions -> NixAction PrefetchError m (Sha256, StorePath
 url UrlOptions{..} = Helpers.readProcess handler exec args
   where
     exec = "nix-prefetch-url"
-    args = if urlUnpack then ["--unpack"] else []
+    args =  bool [] ["--unpack"] urlUnpack
          <> maybe [] (\n -> ["--name", n]) urlName
          <> [ "--type", "sha256"
             , "--print-path"
