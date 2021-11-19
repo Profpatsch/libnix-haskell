@@ -1,5 +1,5 @@
 name:                libnix
-version:             0.3.0.0
+version:             0.4.0.0
 synopsis:            Bindings to the nix package manager
 description:         Use the nix package manager from Haskell. All modules are designed to be imported qualified.
 category:            Foreign, Nix
@@ -33,6 +33,7 @@ library
                      , deepseq
                      , errors >=2.2.0
                      , filepath
+                     , mtl
                      , process
                      , text
   -- hs-source-dirs:

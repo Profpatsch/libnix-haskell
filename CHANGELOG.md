@@ -1,5 +1,11 @@
 # libnix
 
+## 0.4.0.0 -- 2021-11-19
+
+* Allow setting a log function when running a nix action, which can log command invocations.
+* Add an `m` attribute to `NixAction` to make it into a proper `MonadTrans`.
+* Reexport `Types` from the other modules, so that explicit import is not required.
+
 ## 0.3.0.0 -- 2021-11-16
 
 * Remove `Eq` instance from `NixExpr` (not sensible)

@@ -12,7 +12,6 @@ import Test.Tasty.HUnit
 import Foreign.Nix.Shellout
 import Data.Text (Text)
 import Control.Monad.IO.Class (liftIO)
-import Data.Bifunctor (first)
 import Control.Monad ((>=>))
 
 
@@ -75,35 +74,35 @@ copyTempfileToStore = testCase "copy a temporary file to store"
 --------------------------------------------------------------------
 -- Helpers
 
-parseInst :: Text -> NixAction IO InstantiateError (StorePath Derivation)
+parseInst :: Text -> NixAction InstantiateError IO (StorePath Derivation)
 parseInst = parseInstLike instantiate
 
-parseEval :: Text -> NixAction IO InstantiateError ()
+parseEval :: Text -> NixAction InstantiateError IO ()
 parseEval = parseInstLike eval
 
-parseInstLike :: (NixExpr -> NixAction IO InstantiateError a)
+parseInstLike :: (NixExpr -> NixAction InstantiateError IO a)
               -> Text
-              -> NixAction IO InstantiateError a
+              -> NixAction InstantiateError IO a
 parseInstLike like =
-  first (\_ -> UnknownInstantiateError)
+  mapActionError (\_ -> UnknownInstantiateError)
               . parseNixExpr >=> like
 
 isE :: (Eq a, Eq e, Show a, Show e)
-    => NixAction IO e a
+    => NixAction e IO a
     -> Either (Text, e) a
        -- ^ Left (subset of stdout, error)
     -> Assertion
-isE na match = runNixAction na >>= \res ->
+isE na match = runNixAction defaultRunOptions na >>= \res ->
   case (match, res) of
     (Right a, Right b) -> a @=? b
     (match', res') -> check match' res'
 
 isENoFail :: (Eq e, Show a, Show e)
-          => NixAction IO e a
+          => NixAction e IO a
           -> Either (Text, e) a
             -- ^ Left (subset of stdout, error)
           -> Assertion
-isENoFail na match = runNixAction na >>= check match
+isENoFail na match = runNixAction defaultRunOptions na >>= check match
 
 check :: (Eq a, Show a)
       => Either (Text, a) _x
@@ -121,9 +120,9 @@ check (Left _) (Right _) =
   assertFailure "output should have failed, but it succeeded"
 check _ _ = error "handled by isE"
 
-assertNoFailure :: Show e => NixAction IO e a -> Assertion
+assertNoFailure :: Show e => NixAction e IO a -> Assertion
 assertNoFailure na = do
-  ei <- runNixAction na
+  ei <- runNixAction defaultRunOptions na
   case ei of
     (Left naErr) -> assertFailure $ show $ actionError naErr
     (Right _) -> pure ()

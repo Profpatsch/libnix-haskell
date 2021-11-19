@@ -1,7 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Foreign.Nix.Shellout.Helpers where
 
-import Foreign.Nix.Shellout.Types
+import Foreign.Nix.Shellout.Types ( NixActionError(..), RunOptions (logFn), LogFn (LogFn), NixAction )
 import qualified System.Process as P
 import qualified Data.Text.IO as TIO
 import qualified Data.Text as T
@@ -12,7 +14,7 @@ import qualified System.IO as SIO
 import GHC.IO.Exception (IOErrorType(..), IOException(..), ExitCode)
 import Foreign.C.Error (Errno(Errno), ePIPE)
 import Data.Text (Text)
-import Control.Error (ExceptT, withExceptT)
+import Control.Error (ExceptT, runExceptT)
 import Control.Concurrent (MVar, newEmptyMVar, forkIO, takeMVar, putMVar, killThread)
 import Control.DeepSeq (rnf)
 
@@ -21,28 +23,35 @@ import Control.Exception (SomeException, throwIO, onException, try, mask, handle
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import qualified Data.Text as Text
+import Control.Monad.Except (MonadError (throwError))
+import Control.Monad.Reader (asks)
+import Control.Monad.Trans (lift)
 
 -- | Read the output of a process into a NixAction.
 -- | Keeps stderr if process returns a failure exit code.
 -- | The text is decoded as @UTF-8@.
-readProcess :: (MonadIO m) => ((Text, Text) -> ExitCode -> ExceptT e m a)
+readProcess :: (MonadIO m)
+            => ((Text, Text) -> ExitCode -> ExceptT e m a)
             -- ^ handle (stdout, stderr) depending on the return value
             -> Text
             -- ^ name of executable
             -> [Text]
             -- ^ arguments
-            -> NixAction m e a
-            -- ^ error: (stderr, errormsg), success: path
-readProcess with exec args = NixAction $ do
+            -> NixAction e m a
+readProcess with exec args = do
+  -- log every call based on the LogFn the user passed
+  (LogFn l) <- asks logFn
+  lift $ l exec args
+
   (exc, out, err) <- liftIO
     $ readCreateProcessWithExitCodeAndEncoding
         (P.proc (Text.unpack exec) (map Text.unpack args)) SIO.utf8 ""
-  withExceptT
-    (\e -> NixActionError
-             { actionStderr = err
-             , actionError = e })
-    $ with (out, err) exc
-
+  lift (runExceptT (with (out, err) exc)) >>= \case
+    Left e ->
+      throwError $ NixActionError
+        { actionStderr = err
+        , actionError = e }
+    Right a -> pure a
 
 -- Copied & modified from System.Process (process-1.6.4.0)
 
