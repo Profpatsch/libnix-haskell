@@ -19,19 +19,19 @@ import Control.DeepSeq (rnf)
 import Control.Exception (SomeException, throwIO, onException, try, mask, handle, evaluate)
 
 import Control.Monad (unless)
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (liftIO, MonadIO)
 import qualified Data.Text as Text
 
 -- | Read the output of a process into a NixAction.
 -- | Keeps stderr if process returns a failure exit code.
 -- | The text is decoded as @UTF-8@.
-readProcess :: ((Text, Text) -> ExitCode -> ExceptT e IO a)
+readProcess :: (MonadIO m) => ((Text, Text) -> ExitCode -> ExceptT e m a)
             -- ^ handle (stdout, stderr) depending on the return value
             -> Text
             -- ^ name of executable
             -> [Text]
             -- ^ arguments
-            -> NixAction e a
+            -> NixAction m e a
             -- ^ error: (stderr, errormsg), success: path
 readProcess with exec args = NixAction $ do
   (exc, out, err) <- liftIO

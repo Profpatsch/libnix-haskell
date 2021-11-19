@@ -40,6 +40,7 @@ import Data.Bifunctor (first)
 import qualified Data.Text.Lazy as Text.Lazy
 import qualified Data.Text.Lazy.Encoding as Text.Lazy.Encoding
 import qualified Data.List as List
+import Control.Monad.IO.Class (MonadIO (liftIO))
 
 data PrefetchError
   = PrefetchOutputMalformed Text
@@ -75,7 +76,7 @@ defaultUrlOptions u = UrlOptions
   , urlExpectedHash = Nothing }
 
 -- | Runs @nix-prefetch-url@.
-url :: UrlOptions -> NixAction PrefetchError (Sha256, StorePath Realized)
+url :: (MonadIO m) => UrlOptions -> NixAction m PrefetchError (Sha256, StorePath Realized)
 url UrlOptions{..} = Helpers.readProcess handler exec args
   where
     exec = "nix-prefetch-url"
@@ -136,7 +137,7 @@ data GitOutput = GitOutput
   } deriving (Show, Eq)
 
 -- | Runs @nix-prefetch-git@.
-git :: GitOptions -> NixAction PrefetchError GitOutput
+git :: (MonadIO m) => GitOptions -> NixAction m PrefetchError GitOutput
 git GitOptions{..} = Helpers.readProcess handler exec args
   where
     exec = "nix-prefetch-git"

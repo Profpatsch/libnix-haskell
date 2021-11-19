@@ -75,21 +75,21 @@ copyTempfileToStore = testCase "copy a temporary file to store"
 --------------------------------------------------------------------
 -- Helpers
 
-parseInst :: Text -> NixAction InstantiateError (StorePath Derivation)
+parseInst :: Text -> NixAction IO InstantiateError (StorePath Derivation)
 parseInst = parseInstLike instantiate
 
-parseEval :: Text -> NixAction InstantiateError ()
+parseEval :: Text -> NixAction IO InstantiateError ()
 parseEval = parseInstLike eval
 
-parseInstLike :: (NixExpr -> NixAction InstantiateError a)
+parseInstLike :: (NixExpr -> NixAction IO InstantiateError a)
               -> Text
-              -> NixAction InstantiateError a
+              -> NixAction IO InstantiateError a
 parseInstLike like =
   first (\_ -> UnknownInstantiateError)
               . parseNixExpr >=> like
 
 isE :: (Eq a, Eq e, Show a, Show e)
-    => NixAction e a
+    => NixAction IO e a
     -> Either (Text, e) a
        -- ^ Left (subset of stdout, error)
     -> Assertion
@@ -99,7 +99,7 @@ isE na match = runNixAction na >>= \res ->
     (match', res') -> check match' res'
 
 isENoFail :: (Eq e, Show a, Show e)
-          => NixAction e a
+          => NixAction IO e a
           -> Either (Text, e) a
             -- ^ Left (subset of stdout, error)
           -> Assertion
@@ -121,7 +121,7 @@ check (Left _) (Right _) =
   assertFailure "output should have failed, but it succeeded"
 check _ _ = error "handled by isE"
 
-assertNoFailure :: Show e => NixAction e a -> Assertion
+assertNoFailure :: Show e => NixAction IO e a -> Assertion
 assertNoFailure na = do
   ei <- runNixAction na
   case ei of

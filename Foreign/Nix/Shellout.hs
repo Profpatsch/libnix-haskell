@@ -49,6 +49,7 @@ import Control.Monad ((>=>))
 import qualified System.FilePath as FilePath
 import Data.Function ((&))
 import qualified Data.List as List
+import Control.Monad.IO.Class (MonadIO)
 
 ------------------------------------------------------------------------------
 -- Parsing
@@ -64,7 +65,7 @@ data ParseError
   deriving (Show, Eq)
 
 -- | Parse a nix expression and check for syntactic validity.
-parseNixExpr :: Text -> NixAction ParseError NixExpr
+parseNixExpr :: MonadIO m => Text -> NixAction m ParseError NixExpr
 parseNixExpr e =
   bimap parseParseError NixExpr
     $ evalNixOutput "nix-instantiate" [ "--parse", "-E", e ]
@@ -87,7 +88,7 @@ data InstantiateError
   deriving (Show, Eq)
 
 -- | Instantiate a parsed expression into a derivation.
-instantiate :: NixExpr -> NixAction InstantiateError (StorePath Derivation)
+instantiate :: (MonadIO m) => NixExpr -> NixAction m InstantiateError (StorePath Derivation)
 instantiate (NixExpr e) =
   first parseInstantiateError
     $ evalNixOutput "nix-instantiate" [ "-E", e ]
@@ -95,7 +96,7 @@ instantiate (NixExpr e) =
 
 -- | Just tests if the expression can be evaluated.
 -- That doesn’t mean it has to instantiate however.
-eval :: NixExpr -> NixAction InstantiateError ()
+eval :: MonadIO m => NixExpr -> NixAction m InstantiateError ()
 eval (NixExpr e) = do
   _instantiateOutput <- first parseInstantiateError
        $ evalNixOutput "nix-instantiate" [ "--eval", "-E", e ]
@@ -115,15 +116,15 @@ data RealizeError = UnknownRealizeError deriving (Show, Eq)
 
 -- | Finally derivations are realized into full store outputs.
 -- This will typically take a while so it should be executed asynchronously.
-realize :: StorePath Derivation -> NixAction RealizeError (StorePath Realized)
+realize :: MonadIO m => StorePath Derivation -> NixAction m RealizeError (StorePath Realized)
 realize (StorePath d) =
      storeOp [ "-r", Text.pack d ]
 
 -- | Copy the given file or folder to the nix store and return it’s path.
-addToStore :: FilePath -> NixAction RealizeError (StorePath Realized)
+addToStore :: MonadIO m => FilePath -> NixAction m RealizeError (StorePath Realized)
 addToStore fp = storeOp [ "--add", Text.pack fp ]
 
-storeOp :: [Text] -> NixAction RealizeError (StorePath Realized)
+storeOp :: (MonadIO m) => [Text] -> NixAction m RealizeError (StorePath Realized)
 storeOp op =
   first (const UnknownRealizeError)
     $ evalNixOutput "nix-store" op
@@ -140,7 +141,7 @@ data NixError
 
 -- | A convenience function to directly realize a nix expression.
 -- Any errors are put into a combined error type.
-parseInstRealize :: Text -> NixAction NixError (StorePath Realized)
+parseInstRealize :: (MonadIO m) => Text -> NixAction m NixError (StorePath Realized)
 parseInstRealize = first ParseError . parseNixExpr
                >=> first InstantiateError . instantiate
                >=> first RealizeError . realize
@@ -149,11 +150,12 @@ parseInstRealize = first ParseError . parseNixExpr
 -- Helpers
 
 -- | Take args and return either error message or output path
-evalNixOutput :: Text
+evalNixOutput :: (MonadIO m)
+              => Text
               -- ^ name of executable
               -> [Text]
               -- ^ arguments
-              -> NixAction Text Text
+              -> NixAction m Text Text
               -- ^ error: (stderr, errormsg), success: path
 evalNixOutput = Helpers.readProcess (\(out, err) -> \case
   ExitFailure _ -> throwE $
@@ -170,7 +172,7 @@ evalNixOutput = Helpers.readProcess (\(out, err) -> \case
 
 
 -- | Apply filePath p to constructor a if it’s a valid filepath
-toNixFilePath :: (String -> a) -> Text -> NixAction Text a
+toNixFilePath :: Monad m => (String -> a) -> Text -> NixAction m Text a
 toNixFilePath a p = NixAction $
   if FilePath.isValid (Text.unpack p) then pure $ a (Text.unpack p)
   else throwE $ NixActionError

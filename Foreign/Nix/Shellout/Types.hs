@@ -13,8 +13,8 @@ import Data.Text (Text)
 import Data.Bifunctor (Bifunctor (bimap))
 
 -- | Calls a command that returns an error and the whole stderr on failure.
-newtype NixAction e a = NixAction
-  { unNixAction :: ExceptT (NixActionError e) IO a }
+newtype NixAction m e a = NixAction
+  { unNixAction :: ExceptT (NixActionError e) m a }
   deriving (Functor, Applicative, Monad, MonadIO)
 
 -- | Combines the standard error of running a command with a more semantic
@@ -25,11 +25,11 @@ data NixActionError e = NixActionError
   deriving (Show, Functor)
 
 -- | Run a 'NixAction' without having to go through 'ExceptT' first.
-runNixAction :: NixAction e a
-             -> IO (Either (NixActionError e) a)
+runNixAction :: NixAction m e a
+             -> m (Either (NixActionError e) a)
 runNixAction = runExceptT . unNixAction
 
-instance Bifunctor NixAction where
+instance Functor m => Bifunctor (NixAction m) where
   bimap f g = NixAction . bimapExceptT (fmap f) g . unNixAction
 
 -- | A path in the nix store. It carries a phantom @a@ to differentiate
