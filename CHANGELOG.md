@@ -1,5 +1,9 @@
 # libnix
 
+## 0.4.1.0 -- 2021-11-23
+
+* Add `executables` to the `RunOptions`. Backwards compatible if you use `defaultRunOptions`.
+
 ## 0.4.0.1 -- 2021-11-19
 
 * Fix `Prefetch.url`. The constructed command was missing flags for `urlUnpack = True`.

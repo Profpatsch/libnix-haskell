@@ -16,6 +16,8 @@ module Foreign.Nix.Shellout.Types (
   RunOptions(..),
   defaultRunOptions,
   LogFn(..),
+  Executables(..),
+  defaultExecutables,
   NixActionError(..),
   mapActionError,
 
@@ -32,9 +34,11 @@ import Control.Monad.Except (MonadError)
 --
 -- Might get more fields in the future, use 'defaultRunOptions'
 -- to be backwards-compatbile.
-newtype RunOptions m = RunOptions {
-  logFn :: LogFn m
+data RunOptions m = RunOptions {
+  logFn :: LogFn m,
   -- ^ The command line logging function.
+  executables :: Executables
+  -- ^ A record of all executables this library could need.
 }
 
 -- | Logging function to call before running a command.
@@ -44,13 +48,43 @@ newtype RunOptions m = RunOptions {
 -- the second argument is the list of arguments.
 newtype LogFn m = LogFn (Text -> [Text] -> m ())
 
+-- | All executables this library might need.
+--
+-- If you set an executable to @Just filepath@, the internal code will use the given path instead of looking up the executable name in @PATH@.
+-- This is useful if you want to ensure that the executables always exist before calling into this library.
+--
+-- 'NixAction' functions document the executables they use in their docstrings.
+--
+-- If an executable can’t be found, an 'IOException' is thrown (by the process spawn function).
+data Executables = Executables {
+  exeNixInstantiate :: Maybe FilePath,
+  -- ^ @nix-instantiate@; usually you can expect nix to exist on the system (but we don’t check before running the commands)
+  exeNixStore :: Maybe FilePath,
+  -- ^ @nix-store@
+  exeNixPrefetchUrl :: Maybe FilePath,
+  -- ^ @nix-prefetch-url@; as of nix @2.3@, this executable comes with the nix distribution, so if @nix-store@ is available, this should also be available
+  exeNixPrefetchGit :: Maybe FilePath
+  -- ^ @nix-prefetch-git@; This is usually provided by the @nix-prefetch-scripts@ package and /not/ installed with nix
+ }
+
+-- |  all executables are taken from @PATH@
+defaultExecutables :: Executables
+defaultExecutables = Executables {
+    exeNixInstantiate = Nothing,
+    exeNixStore = Nothing,
+    exeNixPrefetchUrl = Nothing,
+    exeNixPrefetchGit = Nothing
+  }
+
 -- |
 -- @
 -- logFn = nothing is done/logged
+-- executable = all executables are taken from @PATH@
 -- @
 defaultRunOptions :: Monad m => RunOptions m
 defaultRunOptions = RunOptions {
-  logFn = LogFn (\_prog _args -> pure ())
+  logFn = LogFn (\_prog _args -> pure ()),
+  executables = defaultExecutables
 }
 
 -- | Calls a command that returns an error and the whole stderr on failure.

@@ -58,17 +58,20 @@ data ParseError
   deriving (Show, Eq)
 
 -- | Parse a nix expression and check for syntactic validity.
+
+-- Runs @nix-instantiate@.
 parseNixExpr :: MonadIO m => Text -> NixAction ParseError m NixExpr
-parseNixExpr e =
+parseNixExpr e = do
+  exec <- Helpers.getExecOr exeNixInstantiate "nix-instantiate"
   mapActionError parseParseError
     $ NixExpr
-    <$> evalNixOutput "nix-instantiate" [ "--parse", "-E", e ]
+    <$> evalNixOutput exec [ "--parse", "-E", e ]
 
 
 parseParseError :: Text -> ParseError
 parseParseError
   (stripPrefix "error: syntax error, "
-               -> Just mes) = SyntaxError $ mes
+               -> Just mes) = SyntaxError mes
 parseParseError _           = UnknownParseError
 
 ------------------------------------------------------------------------------
@@ -82,18 +85,25 @@ data InstantiateError
   deriving (Show, Eq)
 
 -- | Instantiate a parsed expression into a derivation.
+--
+-- Runs @nix-instantiate@.
 instantiate :: (MonadIO m) => NixExpr -> NixAction InstantiateError m (StorePath Derivation)
-instantiate (NixExpr e) =
+instantiate (NixExpr e) = do
+  exec <- Helpers.getExecOr exeNixInstantiate "nix-instantiate"
   mapActionError parseInstantiateError
-    $ evalNixOutput "nix-instantiate" [ "-E", e ]
+    $ evalNixOutput exec [ "-E", e ]
       >>= toNixFilePath StorePath
 
 -- | Just tests if the expression can be evaluated.
 -- That doesn’t mean it has to instantiate however.
+--
+-- Runs @nix-instantiate@.
 eval :: MonadIO m => NixExpr -> NixAction InstantiateError m ()
 eval (NixExpr e) = do
+  exec <- Helpers.getExecOr exeNixInstantiate "nix-instantiate"
+
   _instantiateOutput <- mapActionError parseInstantiateError
-       $ evalNixOutput "nix-instantiate" [ "--eval", "-E", e ]
+       $ evalNixOutput exec [ "--eval", "-E", e ]
   pure ()
 
 parseInstantiateError :: Text -> InstantiateError
@@ -110,18 +120,23 @@ data RealizeError = UnknownRealizeError deriving (Show, Eq)
 
 -- | Finally derivations are realized into full store outputs.
 -- This will typically take a while so it should be executed asynchronously.
+--
+-- Runs @nix-store@.
 realize :: MonadIO m => StorePath Derivation -> NixAction RealizeError m (StorePath Realized)
 realize (StorePath d) =
      storeOp [ "-r", Text.pack d ]
 
 -- | Copy the given file or folder to the nix store and return it’s path.
+--
+-- Runs @nix-store@.
 addToStore :: MonadIO m => FilePath -> NixAction RealizeError m (StorePath Realized)
 addToStore fp = storeOp [ "--add", Text.pack fp ]
 
 storeOp :: (MonadIO m) => [Text] -> NixAction RealizeError m (StorePath Realized)
-storeOp op =
+storeOp op = do
+  exec <- Helpers.getExecOr exeNixInstantiate "nix-store"
   mapActionError (const UnknownRealizeError)
-    $ evalNixOutput "nix-store" op
+    $ evalNixOutput exec op
       >>= toNixFilePath StorePath
 
 ------------------------------------------------------------------------------
@@ -145,7 +160,7 @@ parseInstRealize = mapActionError ParseError . parseNixExpr
 
 -- | Take args and return either error message or output path
 evalNixOutput :: (MonadIO m)
-              => Text
+              => Helpers.Executable
               -- ^ name of executable
               -> [Text]
               -- ^ arguments

@@ -3,7 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 module Foreign.Nix.Shellout.Helpers where
 
-import Foreign.Nix.Shellout.Types ( NixActionError(..), RunOptions (logFn), LogFn (LogFn), NixAction )
+import Foreign.Nix.Shellout.Types ( NixActionError(..), RunOptions (logFn, executables), LogFn (LogFn), NixAction, Executables )
 import qualified System.Process as P
 import qualified Data.Text.IO as TIO
 import qualified Data.Text as T
@@ -26,6 +26,24 @@ import qualified Data.Text as Text
 import Control.Monad.Except (MonadError (throwError))
 import Control.Monad.Reader (asks)
 import Control.Monad.Trans (lift)
+import Data.Function ((&))
+
+-- | Something we can run
+data Executable =
+  ExeFromPathEnv Text
+  -- ^ name of the executable, to be looked up in PATH
+  | ExeFromFilePath FilePath
+  -- ^ a file path to the executable (can be relative or absolute)
+
+-- | Get an executable from the 'Executables' option (by its getter)
+-- or if not set use the given 'Text' as the name of the excutable
+-- to be looked up in @PATH@.
+getExecOr :: Monad m => (Executables -> Maybe FilePath) -> Text ->  NixAction e m Executable
+getExecOr getter exeName =
+  let f = \case
+        Nothing -> ExeFromPathEnv exeName
+        Just fp -> ExeFromFilePath fp
+  in asks (f . getter . executables)
 
 -- | Read the output of a process into a NixAction.
 -- | Keeps stderr if process returns a failure exit code.
@@ -33,19 +51,22 @@ import Control.Monad.Trans (lift)
 readProcess :: (MonadIO m)
             => ((Text, Text) -> ExitCode -> ExceptT e m a)
             -- ^ handle (stdout, stderr) depending on the return value
-            -> Text
-            -- ^ name of executable
+            -> Executable
+            -- ^ executable to run
             -> [Text]
             -- ^ arguments
             -> NixAction e m a
 readProcess with exec args = do
+  let exec' = case exec of
+        ExeFromPathEnv name -> name
+        ExeFromFilePath fp -> fp & Text.pack
   -- log every call based on the LogFn the user passed
   (LogFn l) <- asks logFn
-  lift $ l exec args
+  lift $ l exec' args
 
   (exc, out, err) <- liftIO
     $ readCreateProcessWithExitCodeAndEncoding
-        (P.proc (Text.unpack exec) (map Text.unpack args)) SIO.utf8 ""
+        (P.proc (Text.unpack exec') (map Text.unpack args)) SIO.utf8 ""
   lift (runExceptT (with (out, err) exc)) >>= \case
     Left e ->
       throwError $ NixActionError

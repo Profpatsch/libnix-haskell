@@ -1,5 +1,8 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE LambdaCase #-}
 module TestShellout where
 
 import qualified Data.Text as T
@@ -13,6 +16,9 @@ import Foreign.Nix.Shellout
 import Data.Text (Text)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad ((>=>))
+import Control.Exception (SomeException, try, Exception (displayException))
+import Data.Function ((&))
+import qualified Data.List as List
 
 
 shelloutTests :: TestTree
@@ -28,31 +34,37 @@ shelloutTests = testGroup "shellout tests"
     , multilineErrors
     , helloWorld
     , copyTempfileToStore ]
+  , testGroup "executable paths"
+    [ badInstantiateFilePath ]
   ]
 
-syntaxError, infiniteRecursion, notADerivation, someDerivation :: TestTree
-nixpkgsExists, multilineErrors, helloWorld, copyTempfileToStore :: TestTree
 
+syntaxError :: TestTree
 syntaxError = testCase "syntax error"
   $ parseNixExpr ";" `isENoFail`
       Left ("", SyntaxError "unexpected ';', at (string):1:1")
 
+infiniteRecursion :: TestTree
 infiniteRecursion = testCase "infinite recursion"
   $ parseInst "let a = a; in a"
   `isE` Left ( "error: infinite recursion encountered, at (string):1:10"
               , UnknownInstantiateError)
 
+notADerivation :: TestTree
 notADerivation = testCase "not a derivation"
   $ parseInst "42"
   `isE` Left ("", NotADerivation)
 
+someDerivation :: TestTree
 someDerivation = testCase "a basic derivation"
   $ assertNoFailure $ parseInst
       "derivation { name = \"foo\"; builder = \" \"; system = \" \"; }"
 
+nixpkgsExists :: TestTree
 nixpkgsExists = testCase "nixpkgs is accessible"
   $ assertNoFailure $ parseEval "import <nixpkgs> {}"
 
+multilineErrors :: TestTree
 multilineErrors = testCase "nixpkgs multiline stderr it parsed"
   $ parseEval "builtins.abort ''wow\nsuch error''"
   `isE` Left
@@ -60,9 +72,11 @@ multilineErrors = testCase "nixpkgs multiline stderr it parsed"
              \message: 'wow\nsuch error'"
            , UnknownInstantiateError)
 
+helloWorld :: TestTree
 helloWorld = testCase "build the GNU hello package"
   $ assertNoFailure $ parseInstRealize "with import <nixpkgs> {}; hello"
 
+copyTempfileToStore :: TestTree
 copyTempfileToStore = testCase "copy a temporary file to store"
   $ assertNoFailure $ do
     (fp, h) <- liftIO $
@@ -70,6 +84,15 @@ copyTempfileToStore = testCase "copy a temporary file to store"
     liftIO $ hClose h
     addToStore fp
 
+badInstantiateFilePath :: TestTree
+badInstantiateFilePath = testCase "not a derivation"
+  $ isExcBad "No such file or directory" (parseInst "42")
+  where
+    isExcBad = isException (defaultRunOptions {
+      executables = defaultExecutables {
+        exeNixInstantiate = Just "/path/does/not/exist"
+      }
+    })
 
 --------------------------------------------------------------------
 -- Helpers
@@ -92,10 +115,26 @@ isE :: (Eq a, Eq e, Show a, Show e)
     -> Either (Text, e) a
        -- ^ Left (subset of stdout, error)
     -> Assertion
-isE na match = runNixAction defaultRunOptions na >>= \res ->
+isE = isE' defaultRunOptions
+
+isE' :: (Eq a, Eq e, Show a, Show e)
+    => RunOptions IO
+    -> NixAction e IO a
+    -> Either (Text, e) a
+       -- ^ Left (subset of stdout, error)
+    -> Assertion
+isE' runOptions na match = runNixAction runOptions na >>= \res ->
   case (match, res) of
     (Right a, Right b) -> a @=? b
     (match', res') -> check match' res'
+
+isException :: RunOptions IO -> [Char] -> NixAction e IO a -> IO ()
+isException runOptions matchText na = try @SomeException (runNixAction runOptions na) >>= \case
+  Left exc -> do
+    let text = exc & displayException
+    assertBool ("threw exception, but did not match the given substring\nshould have contained: " <> matchText <> "\nbut was: " <> text)
+      $ matchText `List.isInfixOf` text
+  Right _a -> assertFailure "runNixAction should have thrown an exception"
 
 isENoFail :: (Eq e, Show a, Show e)
           => NixAction e IO a

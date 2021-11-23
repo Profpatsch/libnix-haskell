@@ -40,6 +40,7 @@ import qualified Data.Text.Lazy as Text.Lazy
 import qualified Data.Text.Lazy.Encoding as Text.Lazy.Encoding
 import qualified Data.List as List
 import Control.Monad.IO.Class (MonadIO)
+import Foreign.Nix.Shellout.Helpers (getExecOr)
 
 data PrefetchError
   = PrefetchOutputMalformed Text
@@ -76,9 +77,10 @@ defaultUrlOptions u = UrlOptions
 
 -- | Runs @nix-prefetch-url@.
 url :: (MonadIO m) => UrlOptions -> NixAction PrefetchError m (Sha256, StorePath Realized)
-url UrlOptions{..} = Helpers.readProcess handler exec args
+url UrlOptions{..} = do
+  exec <- Helpers.getExecOr exeNixPrefetchUrl "nix-prefetch-url"
+  Helpers.readProcess handler exec args
   where
-    exec = "nix-prefetch-url"
     args =  bool [] ["--unpack"] urlUnpack
          <> maybe [] (\n -> ["--name", n]) urlName
          <> [ "--type", "sha256"
@@ -89,8 +91,8 @@ url UrlOptions{..} = Helpers.readProcess handler exec args
     handler (out, err) = \case
       ExitSuccess -> withExceptT PrefetchOutputMalformed $ do
         let ls = T.lines $ T.stripEnd out
-        path <- tryLast (exec <> " didn’t output a store path") ls
-        sha  <- let errS = (exec <> " didn’t output a hash")
+        path <- tryLast "nix-prefetch-url didn’t output a store path" ls
+        sha  <- let errS = "nix-prefetch-url didn’t output a hash"
                 in tryInit errS ls >>= tryLast errS
         pure (Sha256 sha, StorePath $ Text.unpack path)
       ExitFailure _ -> throwE $
@@ -137,9 +139,10 @@ data GitOutput = GitOutput
 
 -- | Runs @nix-prefetch-git@.
 git :: (MonadIO m) => GitOptions -> NixAction PrefetchError m GitOutput
-git GitOptions{..} = Helpers.readProcess handler exec args
+git GitOptions{..} = do
+  exec <- getExecOr exeNixPrefetchGit "nix-prefetch-git"
+  Helpers.readProcess handler exec args
   where
-    exec = "nix-prefetch-git"
     args =  bool ["--no-deepClone"] ["--deepClone"] gitDeepClone
          <> bool [] ["--leave-dotGit"] gitLeaveDotGit
          <> bool [] ["--fetch-submodules"] gitFetchSubmodules
@@ -153,7 +156,7 @@ git GitOptions{..} = Helpers.readProcess handler exec args
 
     handler (out, err) = \case
       ExitSuccess -> withExceptT PrefetchOutputMalformed $ do
-        let error' msg = exec <> " " <> msg
+        let error' msg = "nix-prefetch-git " <> msg
             jsonError :: [Char] -> Text
             jsonError = \msg -> error' (T.intercalate "\n"
                       [ "parsing json output failed:"
@@ -181,6 +184,6 @@ git GitOptions{..} = Helpers.readProcess handler exec args
         pure GitOutput{..}
 
       ExitFailure _ -> throwE $
-        if ("hash mismatch for URL" `T.isInfixOf` err)
+        if "hash mismatch for URL" `T.isInfixOf` err
         then ExpectedHashError
         else UnknownPrefetchError
